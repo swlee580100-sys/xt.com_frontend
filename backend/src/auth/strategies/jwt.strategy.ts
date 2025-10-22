@@ -1,0 +1,61 @@
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PassportStrategy } from '@nestjs/passport';
+import type { User } from '@prisma/client';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+
+import { PrismaService } from '../../prisma/prisma.service';
+import type { UserEntity } from '../entities/user.entity';
+import type { Role } from '../../common/decorators/roles.decorator';
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(
+    configService: ConfigService,
+    private readonly prisma: PrismaService
+  ) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: configService.get<string>('auth.jwt.accessTokenSecret')
+    });
+  }
+
+  async validate(payload: { sub: string }): Promise<UserEntity> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub }
+    });
+
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    return this.sanitizeUser(user);
+  }
+
+  private sanitizeUser(user: User): UserEntity {
+    const { passwordHash, refreshTokenHash, roles, ...safeUser } = user;
+    return {
+      ...safeUser,
+      roles: this.normalizeRoles(roles),
+      lastLoginAt: safeUser.lastLoginAt ?? null
+    };
+  }
+
+  private normalizeRoles(value: unknown): Role[] {
+    if (Array.isArray(value)) {
+      return value as Role[];
+    }
+
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? (parsed as Role[]) : ['trader'];
+      } catch {
+        return ['trader'];
+      }
+    }
+
+    return ['trader'];
+  }
+}

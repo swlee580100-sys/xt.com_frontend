@@ -1,0 +1,178 @@
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  UnauthorizedException
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+import type { User } from '@prisma/client';
+
+import { PrismaService } from '../prisma/prisma.service';
+import type { RegisterDto } from './dto/register.dto';
+import type { UserEntity } from './entities/user.entity';
+import type { Role } from '../common/decorators/roles.decorator';
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
+@Injectable()
+export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  private readonly saltRounds: number;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService
+  ) {
+    this.saltRounds = this.configService.get<number>('auth.bcryptSaltRounds') ?? 12;
+  }
+
+  async register(payload: RegisterDto): Promise<{ user: UserEntity; tokens: AuthTokens }> {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: payload.email }
+    });
+
+    if (existingUser) {
+      throw new ConflictException('Email already registered');
+    }
+
+    const passwordHash = await this.hashValue(payload.password);
+    const user = await this.prisma.user.create({
+      data: {
+        email: payload.email,
+        displayName: payload.displayName,
+        passwordHash,
+        roles: payload.roles ?? ['trader']
+      }
+    });
+
+    const tokens = await this.generateAndPersistTokens(user);
+    return {
+      user: this.sanitizeUser(user),
+      tokens
+    };
+  }
+
+  async validateUser(email: string, password: string): Promise<UserEntity | null> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return null;
+    }
+
+    const passwordMatches = await this.compareValue(password, user.passwordHash);
+    if (!passwordMatches) {
+      return null;
+    }
+
+    return this.sanitizeUser(user);
+  }
+
+  async login(user: UserEntity): Promise<{ user: UserEntity; tokens: AuthTokens }> {
+    const dbUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() }
+    });
+    const tokens = await this.generateAndPersistTokens(dbUser);
+    return {
+      user: this.sanitizeUser(dbUser),
+      tokens
+    };
+  }
+
+  async refreshTokens(refreshToken: string): Promise<AuthTokens> {
+    try {
+      const payload = await this.jwtService.verifyAsync<{ sub: string }>(refreshToken, {
+        secret: this.configService.get<string>('auth.jwt.refreshTokenSecret')
+      });
+
+      const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+      if (!user || !user.refreshTokenHash) {
+        throw new UnauthorizedException();
+      }
+
+      const isMatch = await this.compareValue(refreshToken, user.refreshTokenHash);
+      if (!isMatch) {
+        throw new UnauthorizedException();
+      }
+
+      const tokens = await this.generateAndPersistTokens(user);
+      return tokens;
+    } catch (error) {
+      this.logger.warn('Failed to refresh token', error instanceof Error ? error.stack : undefined);
+      throw new UnauthorizedException();
+    }
+  }
+
+  async revokeTokens(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshTokenHash: null }
+    });
+  }
+
+  private sanitizeUser(user: User): UserEntity {
+    const { passwordHash, refreshTokenHash, roles, ...safeUser } = user;
+    return {
+      ...safeUser,
+      roles: this.normalizeRoles(roles),
+      lastLoginAt: safeUser.lastLoginAt ?? null
+    } as UserEntity;
+  }
+
+  private async generateAndPersistTokens(user: User): Promise<AuthTokens> {
+    const roles = this.normalizeRoles(user.roles);
+    const accessToken = await this.jwtService.signAsync(
+      { sub: user.id, email: user.email, roles },
+      {
+        expiresIn: this.configService.get<string>('auth.jwt.accessTokenTtl'),
+        secret: this.configService.get<string>('auth.jwt.accessTokenSecret')
+      }
+    );
+
+    const refreshToken = await this.jwtService.signAsync(
+      { sub: user.id, email: user.email },
+      {
+        expiresIn: this.configService.get<string>('auth.jwt.refreshTokenTtl'),
+        secret: this.configService.get<string>('auth.jwt.refreshTokenSecret')
+      }
+    );
+
+    const refreshTokenHash = await this.hashValue(refreshToken);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { refreshTokenHash }
+    });
+
+    return { accessToken, refreshToken };
+  }
+
+  private normalizeRoles(value: unknown): Role[] {
+    if (Array.isArray(value)) {
+      return value as Role[];
+    }
+
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? (parsed as Role[]) : ['trader'];
+      } catch {
+        return ['trader'];
+      }
+    }
+
+    return ['trader'];
+  }
+
+  private async hashValue(value: string): Promise<string> {
+    return bcrypt.hash(value, this.saltRounds);
+  }
+
+  private async compareValue(value: string, hash: string): Promise<boolean> {
+    return bcrypt.compare(value, hash);
+  }
+}
