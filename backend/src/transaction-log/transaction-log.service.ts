@@ -4,7 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { Prisma, TransactionStatus, TradeDirection } from '@prisma/client';
+import { Prisma, TransactionStatus, TradeDirection, AccountType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketDataService } from '../market-data/market-data.service';
@@ -38,11 +38,17 @@ export class TransactionLogService {
       throw new NotFoundException('用户不存在');
     }
 
-    // 检查账户余额是否足够
-    const balance = Number(user.accountBalance);
+    // 确定账户类型，默认为虚拟账户
+    const accountType = dto.accountType || AccountType.DEMO;
+
+    // 根据账户类型检查余额
+    const balance = accountType === AccountType.DEMO
+      ? Number(user.demoBalance)
+      : Number(user.realBalance);
+
     if (balance < dto.investAmount) {
       throw new BadRequestException(
-        `账户余额不足。当前余额: ${balance}, 需要: ${dto.investAmount}`,
+        `${accountType === AccountType.DEMO ? '虚拟' : '真实'}账户余额不足。当前余额: ${balance}, 需要: ${dto.investAmount}`,
       );
     }
 
@@ -64,6 +70,7 @@ export class TransactionLogService {
       data: {
         userId,
         orderNumber,
+        accountType,
         assetType: dto.assetType,
         direction: dto.direction,
         entryTime,
@@ -79,18 +86,29 @@ export class TransactionLogService {
       },
     });
 
-    // 扣除投资金额
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        accountBalance: {
-          decrement: dto.investAmount,
+    // 根据账户类型扣除投资金额
+    if (accountType === AccountType.DEMO) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          demoBalance: {
+            decrement: dto.investAmount,
+          },
         },
-      },
-    });
+      });
+    } else {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          realBalance: {
+            decrement: dto.investAmount,
+          },
+        },
+      });
+    }
 
     this.logger.log(
-      `交易创建成功: ${orderNumber}, 用户: ${userId}, 资产: ${dto.assetType}`,
+      `交易创建成功: ${orderNumber}, 用户: ${userId}, 账户类型: ${accountType}, 资产: ${dto.assetType}`,
     );
 
     return this.mapToResponseDto(transaction);
@@ -108,7 +126,7 @@ export class TransactionLogService {
     page: number;
     limit: number;
   }> {
-    const { page = 1, limit = 20, assetType, direction, status } = query;
+    const { page = 1, limit = 20, assetType, direction, status, accountType } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.TransactionLogWhereInput = {
@@ -116,6 +134,7 @@ export class TransactionLogService {
       ...(assetType && { assetType }),
       ...(direction && { direction }),
       ...(status && { status }),
+      ...(accountType && { accountType }),
     };
 
     const [transactions, total] = await Promise.all([
@@ -225,10 +244,11 @@ export class TransactionLogService {
       investAmount,
       actualReturn,
       isWin,
+      transaction.accountType,
     );
 
     this.logger.log(
-      `交易已结算: ${orderNumber}, 结果: ${isWin ? '盈利' : '亏损'}, 实得: ${actualReturn}`,
+      `交易已结算: ${orderNumber}, 账户类型: ${transaction.accountType}, 结果: ${isWin ? '盈利' : '亏损'}, 实得: ${actualReturn}`,
     );
 
     return this.mapToResponseDto(updatedTransaction);
@@ -259,15 +279,26 @@ export class TransactionLogService {
       },
     });
 
-    // 退还投资金额
-    await this.prisma.user.update({
-      where: { id: transaction.userId },
-      data: {
-        accountBalance: {
-          increment: Number(transaction.investAmount),
+    // 根据账户类型退还投资金额
+    if (transaction.accountType === AccountType.DEMO) {
+      await this.prisma.user.update({
+        where: { id: transaction.userId },
+        data: {
+          demoBalance: {
+            increment: Number(transaction.investAmount),
+          },
         },
-      },
-    });
+      });
+    } else {
+      await this.prisma.user.update({
+        where: { id: transaction.userId },
+        data: {
+          realBalance: {
+            increment: Number(transaction.investAmount),
+          },
+        },
+      });
+    }
 
     this.logger.log(`交易已取消: ${orderNumber}`);
 
@@ -328,6 +359,8 @@ export class TransactionLogService {
         where: { id: userId },
         select: {
           accountBalance: true,
+          demoBalance: true,
+          realBalance: true,
           totalProfitLoss: true,
           winRate: true,
           totalTrades: true,
@@ -339,7 +372,9 @@ export class TransactionLogService {
       totalTransactions > 0 ? (winTransactions / totalTransactions) * 100 : 0;
 
     return {
-      accountBalance: Number(user?.accountBalance || 0),
+      accountBalance: Number(user?.accountBalance || 0), // 旧字段，兼容性
+      demoBalance: Number(user?.demoBalance || 0),
+      realBalance: Number(user?.realBalance || 0),
       totalProfitLoss: Number(user?.totalProfitLoss || 0),
       winRate: Number(winRate.toFixed(2)),
       totalTrades: user?.totalTrades || 0,
@@ -392,6 +427,7 @@ export class TransactionLogService {
     investAmount: number,
     actualReturn: number,
     isWin: boolean,
+    accountType: AccountType = AccountType.DEMO,
   ): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -399,10 +435,13 @@ export class TransactionLogService {
 
     if (!user) return;
 
-    const currentBalance = Number(user.accountBalance);
+    // 根据账户类型获取当前余额
+    const currentBalance = accountType === AccountType.DEMO
+      ? Number(user.demoBalance)
+      : Number(user.realBalance);
+
     const currentProfitLoss = Number(user.totalProfitLoss);
     const currentTotalTrades = user.totalTrades;
-    const currentWinRate = Number(user.winRate);
 
     // 计算新的余额（实得可能是负数）
     const newBalance = currentBalance + investAmount + actualReturn;
@@ -423,14 +462,22 @@ export class TransactionLogService {
     });
     const newWinRate = (winTrades / newTotalTrades) * 100;
 
+    // 根据账户类型更新余额
+    const updateData: any = {
+      totalProfitLoss: newProfitLoss,
+      totalTrades: newTotalTrades,
+      winRate: newWinRate,
+    };
+
+    if (accountType === AccountType.DEMO) {
+      updateData.demoBalance = newBalance;
+    } else {
+      updateData.realBalance = newBalance;
+    }
+
     await this.prisma.user.update({
       where: { id: userId },
-      data: {
-        accountBalance: newBalance,
-        totalProfitLoss: newProfitLoss,
-        totalTrades: newTotalTrades,
-        winRate: newWinRate,
-      },
+      data: updateData,
     });
   }
 
@@ -442,6 +489,7 @@ export class TransactionLogService {
       id: transaction.id,
       userId: transaction.userId,
       orderNumber: transaction.orderNumber,
+      accountType: transaction.accountType,
       assetType: transaction.assetType,
       direction: transaction.direction,
       entryTime: transaction.entryTime,

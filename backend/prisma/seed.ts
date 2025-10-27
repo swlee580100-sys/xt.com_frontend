@@ -6,6 +6,7 @@ const prisma = new PrismaClient();
 async function main() {
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@example.com';
   const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe123!';
+  const adminPhone = process.env.SEED_ADMIN_PHONE ?? '+86-10000000000';
 
   const saltRounds = Number(process.env.BCRYPT_SALT_ROUNDS ?? 12);
   const passwordHash = await bcrypt.hash(adminPassword, saltRounds);
@@ -20,6 +21,7 @@ async function main() {
     create: {
       email: adminEmail,
       displayName: 'Administrator',
+      phoneNumber: adminPhone,
       passwordHash,
       roles: ['admin', 'trader'],
       isActive: true

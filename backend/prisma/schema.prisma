@@ -7,6 +7,117 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  displayName        String
+  passwordHash       String
+  refreshTokenHash   String?
+  roles              Json?
+  isActive           Boolean            @default(true)
+  lastLoginAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  accountBalance     Decimal            @default(10000) @db.Decimal(18, 8)
+  totalProfitLoss    Decimal            @default(0) @db.Decimal(18, 8)
+  totalTrades        Int                @default(0)
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  winRate            Decimal            @default(0) @db.Decimal(5, 2)
+  demoBalance        Decimal            @default(10000) @db.Decimal(18, 8)
+  phoneNumber        String             @unique
+  realBalance        Decimal            @default(0) @db.Decimal(18, 8)
+  orders             Order[]
+  sessions           Session[]
+  transactionLogs    TransactionLog[]
+
+  @@index([email])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  ip        String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id             String      @id @default(uuid())
+  userId         String
+  symbol         String
+  side           OrderSide
+  type           OrderType
+  status         OrderStatus @default(PENDING)
+  price          Decimal?    @db.Decimal(18, 8)
+  quantity       Decimal     @db.Decimal(18, 8)
+  filledQuantity Decimal     @default(0) @db.Decimal(18, 8)
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trades         Trade[]
+
+  @@index([userId, symbol])
+}
+
+model Trade {
+  id        String   @id @default(uuid())
+  orderId   String
+  symbol    String
+  price     Decimal  @db.Decimal(18, 8)
+  quantity  Decimal  @db.Decimal(18, 8)
+  fee       Decimal  @default(0) @db.Decimal(18, 8)
+  isMaker   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([symbol, createdAt])
+}
+
+model MarketSnapshot {
+  id        String   @id @default(uuid())
+  symbol    String
+  price     Decimal  @db.Decimal(18, 8)
+  change24h Decimal  @db.Decimal(7, 2)
+  raw       Json?
+  source    String
+  createdAt DateTime @default(now())
+
+  @@index([symbol, createdAt])
+}
+
+model TransactionLog {
+  id           String            @id @default(uuid())
+  userId       String
+  orderNumber  String            @unique
+  assetType    String
+  direction    TradeDirection
+  entryTime    DateTime
+  expiryTime   DateTime
+  duration     Int
+  entryPrice   Decimal           @db.Decimal(18, 8)
+  currentPrice Decimal?          @db.Decimal(18, 8)
+  exitPrice    Decimal?          @db.Decimal(18, 8)
+  spread       Decimal           @db.Decimal(18, 8)
+  investAmount Decimal           @db.Decimal(18, 8)
+  returnRate   Decimal           @db.Decimal(7, 4)
+  actualReturn Decimal           @db.Decimal(18, 8)
+  status       TransactionStatus @default(PENDING)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  settledAt    DateTime?
+  accountType  AccountType       @default(DEMO)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, accountType])
+  @@index([orderNumber])
+  @@index([assetType, createdAt])
+  @@index([entryTime, expiryTime])
+}
+
 enum OrderSide {
   BUY
   SELL
@@ -32,139 +143,17 @@ enum VerificationStatus {
 }
 
 enum TradeDirection {
-  CALL  // 买涨
-  PUT   // 买跌
+  CALL
+  PUT
 }
 
 enum TransactionStatus {
-  PENDING    // 进行中
-  SETTLED    // 已结算
-  CANCELED   // 已取消
+  PENDING
+  SETTLED
+  CANCELED
 }
 
-model User {
-  id                   String             @id @default(uuid())
-  email                String             @unique
-  displayName          String
-  passwordHash         String
-  refreshTokenHash     String?
-  roles                Json?
-  isActive             Boolean            @default(true)
-  lastLoginAt          DateTime?
-
-  // 交易相关字段
-  accountBalance       Decimal            @db.Decimal(18, 8) @default(10000)  // 账户余额，默认 10000
-  totalProfitLoss      Decimal            @db.Decimal(18, 8) @default(0)     // 总盈亏
-  winRate              Decimal            @db.Decimal(5, 2) @default(0)      // 胜率 (0-100)
-  totalTrades          Int                @default(0)                         // 交易次数
-  verificationStatus   VerificationStatus @default(UNVERIFIED)                // 身份状态
-
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-
-  orders               Order[]
-  sessions             Session[]
-  transactionLogs      TransactionLog[]  // 交易流水记录
-
-  @@index([email])
-}
-
-model Session {
-  id           String   @id @default(uuid())
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId       String
-  ip           String?
-  userAgent    String?
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-}
-
-model Order {
-  id             String      @id @default(uuid())
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId         String
-  symbol         String
-  side           OrderSide
-  type           OrderType
-  status         OrderStatus @default(PENDING)
-  price          Decimal?    @db.Decimal(18, 8)
-  quantity       Decimal     @db.Decimal(18, 8)
-  filledQuantity Decimal     @db.Decimal(18, 8) @default(0)
-  metadata       Json?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-
-  trades         Trade[]
-
-  @@index([userId, symbol])
-}
-
-model Trade {
-  id        String   @id @default(uuid())
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderId   String
-  symbol    String
-  price     Decimal  @db.Decimal(18, 8)
-  quantity  Decimal  @db.Decimal(18, 8)
-  fee       Decimal  @db.Decimal(18, 8) @default(0)
-  isMaker   Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([symbol, createdAt])
-}
-
-model MarketSnapshot {
-  id        String   @id @default(uuid())
-  symbol    String
-  price     Decimal  @db.Decimal(18, 8)
-  change24h Decimal  @db.Decimal(7, 2)
-  raw       Json?
-  source    String
-  createdAt DateTime @default(now())
-
-  @@index([symbol, createdAt])
-}
-
-model TransactionLog {
-  id              String            @id @default(uuid())
-
-  // 关联用户
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId          String
-
-  // 订单信息
-  orderNumber     String            @unique  // 交易订单号
-
-  // 交易资产和方向
-  assetType       String                     // 资产类型 (如 BTC, ETH 等)
-  direction       TradeDirection             // 交易方向 (CALL=买涨, PUT=买跌)
-
-  // 时间相关
-  entryTime       DateTime                   // 入场时间
-  expiryTime      DateTime                   // 到期时间
-  duration        Int                        // 时长 (秒)
-
-  // 价格相关
-  entryPrice      Decimal           @db.Decimal(18, 8)  // 入场价
-  currentPrice    Decimal?          @db.Decimal(18, 8)  // 当前价格
-  exitPrice       Decimal?          @db.Decimal(18, 8)  // 出场价格 (结算时记录)
-  spread          Decimal           @db.Decimal(18, 8)  // 点差
-
-  // 金额相关
-  investAmount    Decimal           @db.Decimal(18, 8)  // 投入金额
-  returnRate      Decimal           @db.Decimal(7, 4)   // 报酬率 (如 0.85 表示 85%)
-  actualReturn    Decimal           @db.Decimal(18, 8)  // 实得 (可正可负)
-
-  // 状态
-  status          TransactionStatus @default(PENDING)   // 交易状态
-
-  // 时间戳
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  settledAt       DateTime?                             // 结算时间
-
-  @@index([userId, status])
-  @@index([orderNumber])
-  @@index([assetType, createdAt])
-  @@index([entryTime, expiryTime])
+enum AccountType {
+  DEMO
+  REAL
 }

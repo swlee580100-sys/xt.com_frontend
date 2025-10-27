@@ -1,9 +1,10 @@
-import { TradeDirection, TransactionStatus } from '@prisma/client';
+import { TradeDirection, TransactionStatus, AccountType } from '@prisma/client';
 
 export class TransactionResponseDto {
   id!: string;
   userId!: string;
   orderNumber!: string;
+  accountType!: AccountType;
   assetType!: string;
   direction!: TradeDirection;
   entryTime!: Date;

@@ -2,22 +2,60 @@
 
 ## 基础信息
 
-- **Base URL**: `http://localhost:3000/api`
+- **Base URL (本地)**: `http://localhost:3000/api`
+- **Base URL (生产)**: `http://47.237.31.83:3000/api`
 - **环境**: Development
 - **版本**: 1.0.0
 
 ## 开发模式配置
 
-当前系统配置为开发模式，已禁用以下安全特性以方便测试：
+当前系统配置为开发模式，已放宽以下安全限制以方便测试：
 
-- **JWT 验证**: 已跳过 (`AUTH_SKIP_JWT_VERIFICATION=true`)
+- **JWT 验证**: 已放宽 (`AUTH_SKIP_JWT_VERIFICATION=true`)
+  - 支持不带 token 访问（自动使用默认用户）
+  - 支持通过 query 参数 `?userId=xxx` 指定用户
+  - 仍然支持标准的 Bearer token 方式（**推荐**）
 - **Redis**: 已禁用 (`REDIS_ENABLED=false`)
+
+### 认证方式说明
+
+#### 生产环境（推荐方式）
+所有需要认证的接口都需要在 HTTP Header 中携带 JWT token：
+
+```http
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### 开发环境（三种方式）
+
+**方式 1：标准 Bearer Token（推荐，与生产环境一致）**
+```javascript
+fetch('http://localhost:3000/api/auth/me', {
+  headers: {
+    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+  }
+})
+```
+
+**方式 2：不带 Token（快速测试）**
+```javascript
+// 自动使用默认用户 (test@example.com)
+fetch('http://localhost:3000/api/auth/me')
+```
+
+**方式 3：指定用户 ID**
+```javascript
+// 用于测试不同用户的数据
+fetch('http://localhost:3000/api/auth/me?userId=854135be-c8d9-4dc4-b18a-39ddbde4e8fd')
+```
+
+⚠️ **重要**：虽然开发模式支持方式 2 和 3，但前端开发时建议使用**方式 1**，保持与生产环境一致。
 
 ## 目录
 
 1. [认证接口](#认证接口)
-2. [用户接口](#用户接口)
-3. [交易流水接口](#交易流水接口)
+2. [交易流水接口](#交易流水接口)
+3. [前端集成示例](#前端集成示例)
 
 ---
 
@@ -35,6 +73,7 @@
   "email": "user@example.com",
   "password": "password123",
   "displayName": "用户名",
+  "phoneNumber": "+86-13800138000",  // 必填且唯一
   "roles": ["trader"]  // 可选，默认为 ["trader"]
 }
 ```
@@ -46,8 +85,11 @@
     "id": "uuid",
     "email": "user@example.com",
     "displayName": "用户名",
+    "phoneNumber": "+86-13800138000",
     "roles": ["trader"],
-    "accountBalance": 10000.00000000,
+    "accountBalance": 10000.00000000,  // 旧字段，保留兼容性
+    "demoBalance": 10000.00000000,     // 虚拟交易账户余额
+    "realBalance": 0.00000000,         // 真实交易账户余额
     "totalProfitLoss": 0.00000000,
     "winRate": 0.00,
     "totalTrades": 0,
@@ -81,8 +123,11 @@
     "id": "uuid",
     "email": "user@example.com",
     "displayName": "用户名",
+    "phoneNumber": "+86-13800138000",
     "roles": ["trader"],
-    "accountBalance": 9900.00000000,
+    "accountBalance": 9900.00000000,   // 旧字段，保留兼容性
+    "demoBalance": 9900.00000000,      // 虚拟交易账户余额
+    "realBalance": 5000.00000000,      // 真实交易账户余额
     "totalProfitLoss": -100.00000000,
     "winRate": 45.50,
     "totalTrades": 10,
@@ -131,8 +176,11 @@ Authorization: Bearer {accessToken}
   "id": "uuid",
   "email": "user@example.com",
   "displayName": "用户名",
+  "phoneNumber": "+86-13800138000",
   "roles": ["trader"],
-  "accountBalance": 9900.00000000,
+  "accountBalance": 9900.00000000,   // 旧字段，保留兼容性
+  "demoBalance": 9900.00000000,      // 虚拟交易账户余额
+  "realBalance": 5000.00000000,      // 真实交易账户余额
   "totalProfitLoss": -100.00000000,
   "winRate": 45.50,
   "totalTrades": 10,
@@ -184,7 +232,8 @@ Authorization: Bearer {accessToken}
   "direction": "CALL",         // CALL=买涨, PUT=买跌
   "duration": 60,              // 时长（秒），如60秒
   "investAmount": 100,         // 投入金额
-  "returnRate": 0.85           // 报酬率，0.85表示85%
+  "returnRate": 0.85,          // 报酬率，0.85表示85%
+  "accountType": "DEMO"        // 可选，账户类型: DEMO=虚拟账户, REAL=真实账户，默认DEMO
 }
 ```
 
@@ -194,6 +243,7 @@ Authorization: Bearer {accessToken}
   "id": "uuid",
   "userId": "user-uuid",
   "orderNumber": "TXN1729581234567ABC123",  // 自动生成的订单号
+  "accountType": "DEMO",                     // 账户类型
   "assetType": "BTC",
   "direction": "CALL",
   "entryTime": "2025-10-22T09:00:00.000Z",   // 入场时间
@@ -218,7 +268,7 @@ Authorization: Bearer {accessToken}
 // 余额不足
 {
   "statusCode": 400,
-  "message": "账户余额不足。当前余额: 50, 需要: 100",
+  "message": "虚拟账户余额不足。当前余额: 50, 需要: 100",
   "error": "Bad Request"
 }
 
@@ -247,10 +297,11 @@ Authorization: Bearer {accessToken}
 - `assetType` (可选): 资产类型筛选，如 BTC
 - `direction` (可选): 交易方向筛选，CALL 或 PUT
 - `status` (可选): 状态筛选，PENDING/SETTLED/CANCELED
+- `accountType` (可选): 账户类型筛选，DEMO 或 REAL
 
 **示例请求**:
 ```
-GET /api/transactions?page=1&limit=10&assetType=BTC&status=SETTLED
+GET /api/transactions?page=1&limit=10&assetType=BTC&status=SETTLED&accountType=DEMO
 ```
 
 **响应** (200 OK):
@@ -261,6 +312,7 @@ GET /api/transactions?page=1&limit=10&assetType=BTC&status=SETTLED
       "id": "uuid",
       "userId": "user-uuid",
       "orderNumber": "TXN1729581234567ABC123",
+      "accountType": "DEMO",
       "assetType": "BTC",
       "direction": "CALL",
       "entryTime": "2025-10-22T09:00:00.000Z",
@@ -463,7 +515,9 @@ Authorization: Bearer {accessToken}
 **响应** (200 OK):
 ```json
 {
-  "accountBalance": 10500.00,        // 当前账户余额
+  "accountBalance": 10500.00,        // 当前账户余额 (旧字段，保留兼容性)
+  "demoBalance": 10500.00,           // 虚拟账户余额
+  "realBalance": 5000.00,            // 真实账户余额
   "totalProfitLoss": 500.00,         // 总盈亏
   "winRate": 65.50,                  // 胜率 (%)
   "totalTrades": 20,                 // 总交易次数（包括未结算）
@@ -495,6 +549,7 @@ Authorization: Bearer {accessToken}
   id: string;                      // UUID
   email: string;                   // 邮箱（唯一）
   displayName: string;             // 显示名称
+  phoneNumber: string;             // 电话号码（必填且唯一）
   passwordHash: string;            // 密码哈希
   refreshTokenHash?: string;       // 刷新令牌哈希
   roles: string[];                 // 角色数组 ["trader", "admin"]
@@ -502,7 +557,9 @@ Authorization: Bearer {accessToken}
   lastLoginAt?: Date;              // 最后登录时间
 
   // 交易相关字段
-  accountBalance: number;          // 账户余额，默认 10000
+  accountBalance: number;          // 账户余额（旧字段，保留兼容性）
+  demoBalance: number;             // 虚拟交易账户余额，默认 10000
+  realBalance: number;             // 真实交易账户余额，默认 0
   totalProfitLoss: number;         // 总盈亏
   winRate: number;                 // 胜率 (0-100)
   totalTrades: number;             // 交易次数
@@ -520,6 +577,7 @@ Authorization: Bearer {accessToken}
   id: string;                      // UUID
   userId: string;                  // 用户 ID
   orderNumber: string;             // 订单号（唯一）
+  accountType: AccountType;        // 账户类型: DEMO=虚拟, REAL=真实
 
   // 交易资产和方向
   assetType: string;               // 资产类型: BTC, ETH, ADA, SOL等
@@ -568,6 +626,11 @@ enum TransactionStatus {
 enum VerificationStatus {
   UNVERIFIED = "UNVERIFIED",  // 未验证
   VERIFIED = "VERIFIED"       // 已验证
+}
+
+enum AccountType {
+  DEMO = "DEMO",  // 虚拟交易账户
+  REAL = "REAL"   // 真实交易账户
 }
 ```
 
@@ -649,6 +712,512 @@ curl -X GET http://localhost:3000/api/transactions/statistics \
 
 ---
 
+## 前端集成示例
+
+### 1. API 封装（推荐）
+
+创建一个统一的 API 客户端，自动处理 token：
+
+```javascript
+// api/client.js
+const API_BASE_URL = 'http://47.237.31.83:3000/api';
+
+class ApiClient {
+  constructor() {
+    this.baseUrl = API_BASE_URL;
+  }
+
+  // 获取 token
+  getToken() {
+    return localStorage.getItem('accessToken');
+  }
+
+  // 设置 token
+  setToken(accessToken, refreshToken) {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+  }
+
+  // 清除 token
+  clearToken() {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+  }
+
+  // 统一的请求方法
+  async request(endpoint, options = {}) {
+    const token = this.getToken();
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    // 如果有 token，添加到 header
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      ...options,
+      headers,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Request failed');
+    }
+
+    return data;
+  }
+
+  // GET 请求
+  async get(endpoint, params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    const url = queryString ? `${endpoint}?${queryString}` : endpoint;
+    return this.request(url, { method: 'GET' });
+  }
+
+  // POST 请求
+  async post(endpoint, body) {
+    return this.request(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  // PUT 请求
+  async put(endpoint, body) {
+    return this.request(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
+  // DELETE 请求
+  async delete(endpoint) {
+    return this.request(endpoint, { method: 'DELETE' });
+  }
+}
+
+export const apiClient = new ApiClient();
+```
+
+### 2. 认证相关 API
+
+```javascript
+// api/auth.js
+import { apiClient } from './client';
+
+export const authApi = {
+  // 注册
+  async register(email, password, displayName) {
+    const response = await apiClient.post('/auth/register', {
+      email,
+      password,
+      displayName,
+    });
+
+    // 自动保存 token
+    apiClient.setToken(response.accessToken, response.refreshToken);
+    return response;
+  },
+
+  // 登录
+  async login(email, password) {
+    const response = await apiClient.post('/auth/login', {
+      email,
+      password,
+    });
+
+    // 保存 token
+    apiClient.setToken(response.accessToken, response.refreshToken);
+    return response;
+  },
+
+  // 获取当前用户信息
+  async getMe() {
+    const response = await apiClient.get('/auth/me');
+    return response.data;
+  },
+
+  // 登出
+  async logout() {
+    try {
+      await apiClient.post('/auth/logout');
+    } finally {
+      // 无论成功失败都清除本地 token
+      apiClient.clearToken();
+    }
+  },
+
+  // 刷新 token
+  async refreshToken() {
+    const refreshToken = localStorage.getItem('refreshToken');
+    const response = await apiClient.post('/auth/refresh', {
+      refreshToken,
+    });
+
+    apiClient.setToken(response.accessToken, response.refreshToken);
+    return response;
+  },
+};
+```
+
+### 3. 交易相关 API
+
+```javascript
+// api/transactions.js
+import { apiClient } from './client';
+
+export const transactionApi = {
+  // 创建交易
+  async create(data) {
+    const response = await apiClient.post('/transactions', data);
+    return response.data;
+  },
+
+  // 获取交易列表
+  async list(params = {}) {
+    const response = await apiClient.get('/transactions', params);
+    return response.data;
+  },
+
+  // 获取交易详情
+  async getByOrderNumber(orderNumber) {
+    const response = await apiClient.get(`/transactions/${orderNumber}`);
+    return response.data;
+  },
+
+  // 获取统计数据
+  async getStatistics() {
+    const response = await apiClient.get('/transactions/statistics');
+    return response.data;
+  },
+
+  // 结算交易
+  async settle(orderNumber) {
+    const response = await apiClient.post(`/transactions/${orderNumber}/settle`);
+    return response.data;
+  },
+
+  // 取消交易
+  async cancel(orderNumber) {
+    const response = await apiClient.post(`/transactions/${orderNumber}/cancel`);
+    return response.data;
+  },
+};
+```
+
+### 4. 使用示例
+
+#### React 示例
+
+```jsx
+import { useState, useEffect } from 'react';
+import { authApi, transactionApi } from './api';
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [statistics, setStatistics] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+
+  // 登录
+  const handleLogin = async (email, password) => {
+    try {
+      const response = await authApi.login(email, password);
+      setUser(response.user);
+      console.log('登录成功:', response.user);
+    } catch (error) {
+      console.error('登录失败:', error.message);
+    }
+  };
+
+  // 获取用户信息
+  const fetchUserInfo = async () => {
+    try {
+      const userData = await authApi.getMe();
+      setUser(userData);
+    } catch (error) {
+      console.error('获取用户信息失败:', error.message);
+    }
+  };
+
+  // 获取统计数据
+  const fetchStatistics = async () => {
+    try {
+      const stats = await transactionApi.getStatistics();
+      setStatistics(stats);
+    } catch (error) {
+      console.error('获取统计数据失败:', error.message);
+    }
+  };
+
+  // 创建交易
+  const handleCreateTransaction = async () => {
+    try {
+      const transaction = await transactionApi.create({
+        assetType: 'BTC',
+        direction: 'CALL',
+        duration: 60,
+        investAmount: 100,
+        returnRate: 0.85,
+      });
+
+      console.log('交易创建成功:', transaction);
+
+      // 刷新交易列表和统计数据
+      await fetchTransactions();
+      await fetchStatistics();
+    } catch (error) {
+      console.error('创建交易失败:', error.message);
+    }
+  };
+
+  // 获取交易列表
+  const fetchTransactions = async () => {
+    try {
+      const result = await transactionApi.list({ page: 1, limit: 10 });
+      setTransactions(result.data);
+    } catch (error) {
+      console.error('获取交易列表失败:', error.message);
+    }
+  };
+
+  // 页面加载时获取数据
+  useEffect(() => {
+    fetchUserInfo();
+    fetchStatistics();
+    fetchTransactions();
+  }, []);
+
+  return (
+    <div>
+      <h1>加密货币模拟交易</h1>
+
+      {user && (
+        <div>
+          <h2>用户信息</h2>
+          <p>邮箱: {user.email}</p>
+          <p>显示名: {user.displayName}</p>
+        </div>
+      )}
+
+      {statistics && (
+        <div>
+          <h2>统计数据</h2>
+          <p>账户余额: {statistics.accountBalance}</p>
+          <p>总盈亏: {statistics.totalProfitLoss}</p>
+          <p>胜率: {statistics.winRate}%</p>
+          <p>交易次数: {statistics.totalTrades}</p>
+        </div>
+      )}
+
+      <button onClick={handleCreateTransaction}>
+        创建买涨交易
+      </button>
+
+      <div>
+        <h2>交易列表</h2>
+        {transactions.map(tx => (
+          <div key={tx.id}>
+            <p>订单号: {tx.orderNumber}</p>
+            <p>资产: {tx.assetType} | 方向: {tx.direction}</p>
+            <p>投入: {tx.investAmount} | 状态: {tx.status}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default App;
+```
+
+#### Vue 示例
+
+```vue
+<template>
+  <div>
+    <h1>加密货币模拟交易</h1>
+
+    <div v-if="user">
+      <h2>用户信息</h2>
+      <p>邮箱: {{ user.email }}</p>
+      <p>显示名: {{ user.displayName }}</p>
+    </div>
+
+    <div v-if="statistics">
+      <h2>统计数据</h2>
+      <p>账户余额: {{ statistics.accountBalance }}</p>
+      <p>总盈亏: {{ statistics.totalProfitLoss }}</p>
+      <p>胜率: {{ statistics.winRate }}%</p>
+      <p>交易次数: {{ statistics.totalTrades }}</p>
+    </div>
+
+    <button @click="createTransaction">创建买涨交易</button>
+
+    <div>
+      <h2>交易列表</h2>
+      <div v-for="tx in transactions" :key="tx.id">
+        <p>订单号: {{ tx.orderNumber }}</p>
+        <p>资产: {{ tx.assetType }} | 方向: {{ tx.direction }}</p>
+        <p>投入: {{ tx.investAmount }} | 状态: {{ tx.status }}</p>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import { ref, onMounted } from 'vue';
+import { authApi, transactionApi } from './api';
+
+export default {
+  setup() {
+    const user = ref(null);
+    const statistics = ref(null);
+    const transactions = ref([]);
+
+    const fetchUserInfo = async () => {
+      try {
+        user.value = await authApi.getMe();
+      } catch (error) {
+        console.error('获取用户信息失败:', error.message);
+      }
+    };
+
+    const fetchStatistics = async () => {
+      try {
+        statistics.value = await transactionApi.getStatistics();
+      } catch (error) {
+        console.error('获取统计数据失败:', error.message);
+      }
+    };
+
+    const fetchTransactions = async () => {
+      try {
+        const result = await transactionApi.list({ page: 1, limit: 10 });
+        transactions.value = result.data;
+      } catch (error) {
+        console.error('获取交易列表失败:', error.message);
+      }
+    };
+
+    const createTransaction = async () => {
+      try {
+        await transactionApi.create({
+          assetType: 'BTC',
+          direction: 'CALL',
+          duration: 60,
+          investAmount: 100,
+          returnRate: 0.85,
+        });
+
+        await fetchTransactions();
+        await fetchStatistics();
+      } catch (error) {
+        console.error('创建交易失败:', error.message);
+      }
+    };
+
+    onMounted(() => {
+      fetchUserInfo();
+      fetchStatistics();
+      fetchTransactions();
+    });
+
+    return {
+      user,
+      statistics,
+      transactions,
+      createTransaction,
+    };
+  },
+};
+</script>
+```
+
+### 5. 错误处理和 Token 刷新
+
+```javascript
+// api/client.js (增强版)
+class ApiClient {
+  // ... 其他方法
+
+  async request(endpoint, options = {}) {
+    try {
+      const token = this.getToken();
+      const headers = {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      };
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        ...options,
+        headers,
+      });
+
+      const data = await response.json();
+
+      // Token 过期，尝试刷新
+      if (response.status === 401 && !endpoint.includes('/auth/refresh')) {
+        const newToken = await this.refreshToken();
+        if (newToken) {
+          // 使用新 token 重试
+          headers['Authorization'] = `Bearer ${newToken}`;
+          const retryResponse = await fetch(`${this.baseUrl}${endpoint}`, {
+            ...options,
+            headers,
+          });
+          return await retryResponse.json();
+        } else {
+          // 刷新失败，跳转到登录页
+          this.clearToken();
+          window.location.href = '/login';
+          throw new Error('Session expired');
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Request failed');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  }
+
+  async refreshToken() {
+    try {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (!refreshToken) return null;
+
+      const response = await fetch(`${this.baseUrl}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      this.setToken(data.accessToken, data.refreshToken);
+      return data.accessToken;
+    } catch {
+      return null;
+    }
+  }
+}
+```
+
+---
+
 ## 注意事项
 
 1. **开发模式**: 当前 `AUTH_SKIP_JWT_VERIFICATION=true`，JWT 验证被跳过，生产环境必须设置为 `false`
@@ -696,4 +1265,5 @@ curl -X GET http://localhost:3000/api/transactions/statistics \
 ---
 
 生成时间: 2025-10-22
-版本: v1.0.0
+版本: v1.1.0
+最后更新: 添加开发模式说明和前端集成示例

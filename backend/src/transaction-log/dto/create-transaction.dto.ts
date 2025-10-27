@@ -1,5 +1,5 @@
-import { IsEnum, IsNumber, IsPositive, IsString, Min, Max } from 'class-validator';
-import { TradeDirection } from '@prisma/client';
+import { IsEnum, IsNumber, IsPositive, IsString, Min, Max, IsOptional } from 'class-validator';
+import { TradeDirection, AccountType } from '@prisma/client';
 
 export class CreateTransactionDto {
   @IsString()
@@ -20,4 +20,8 @@ export class CreateTransactionDto {
   @Min(0)
   @Max(10)
   returnRate!: number; // 报酬率，如 0.85 表示 85%
+
+  @IsEnum(AccountType)
+  @IsOptional()
+  accountType?: AccountType; // 账户类型 (DEMO=虚拟, REAL=真实)，默认 DEMO
 }

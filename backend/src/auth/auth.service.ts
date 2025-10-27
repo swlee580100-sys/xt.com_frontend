@@ -33,6 +33,7 @@ export class AuthService {
   }
 
   async register(payload: RegisterDto): Promise<{ user: UserEntity; tokens: AuthTokens }> {
+    // 检查邮箱是否已存在
     const existingUser = await this.prisma.user.findUnique({
       where: { email: payload.email }
     });
@@ -41,11 +42,23 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
+    // 检查手机号是否已存在（如果提供了手机号）
+    if (payload.phoneNumber) {
+      const existingPhone = await this.prisma.user.findUnique({
+        where: { phoneNumber: payload.phoneNumber }
+      });
+
+      if (existingPhone) {
+        throw new ConflictException('Phone number already registered');
+      }
+    }
+
     const passwordHash = await this.hashValue(payload.password);
     const user = await this.prisma.user.create({
       data: {
         email: payload.email,
         displayName: payload.displayName,
+        phoneNumber: payload.phoneNumber || `temp_${Date.now()}`,  // 如果没提供，生成临时手机号
         passwordHash,
         roles: payload.roles ?? ['trader']
       }
@@ -120,7 +133,13 @@ export class AuthService {
     return {
       ...safeUser,
       roles: this.normalizeRoles(roles),
-      lastLoginAt: safeUser.lastLoginAt ?? null
+      lastLoginAt: safeUser.lastLoginAt ?? null,
+      phoneNumber: safeUser.phoneNumber,
+      accountBalance: Number(safeUser.accountBalance),
+      demoBalance: Number(safeUser.demoBalance),
+      realBalance: Number(safeUser.realBalance),
+      totalProfitLoss: Number(safeUser.totalProfitLoss),
+      winRate: Number(safeUser.winRate),
     } as UserEntity;
   }
 

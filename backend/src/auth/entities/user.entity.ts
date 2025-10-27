@@ -10,4 +10,16 @@ export interface UserEntity {
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+
+  // 用户基本信息
+  phoneNumber: string | null;  // 可选，临时修改
+
+  // 交易相关字段
+  accountBalance: number;  // 旧字段，保留兼容性
+  demoBalance: number;     // 虚拟交易账户余额
+  realBalance: number;     // 真实交易账户余额
+  totalProfitLoss: number;
+  winRate: number;
+  totalTrades: number;
+  verificationStatus: 'UNVERIFIED' | 'VERIFIED';
 }

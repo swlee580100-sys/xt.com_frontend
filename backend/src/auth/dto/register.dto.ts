@@ -14,6 +14,9 @@ export class RegisterDto {
   @MinLength(2)
   displayName!: string;
 
+  @IsString()
+  phoneNumber!: string;
+
   @IsOptional()
   @IsArray()
   roles?: Role[];

@@ -38,7 +38,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return {
       ...safeUser,
       roles: this.normalizeRoles(roles),
-      lastLoginAt: safeUser.lastLoginAt ?? null
+      lastLoginAt: safeUser.lastLoginAt ?? null,
+      phoneNumber: safeUser.phoneNumber,
+      // 转换 Decimal 类型为 number
+      accountBalance: Number(safeUser.accountBalance),
+      demoBalance: Number(safeUser.demoBalance),
+      realBalance: Number(safeUser.realBalance),
+      totalProfitLoss: Number(safeUser.totalProfitLoss),
+      winRate: Number(safeUser.winRate),
+      totalTrades: safeUser.totalTrades,
+      verificationStatus: safeUser.verificationStatus
     };
   }
 

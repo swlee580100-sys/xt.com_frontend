@@ -1,6 +1,6 @@
 import { IsOptional, IsEnum, IsString, IsInt, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { TradeDirection, TransactionStatus } from '@prisma/client';
+import { TradeDirection, TransactionStatus, AccountType } from '@prisma/client';
 
 export class QueryTransactionsDto {
   @IsOptional()
@@ -14,6 +14,10 @@ export class QueryTransactionsDto {
   @IsOptional()
   @IsEnum(TransactionStatus)
   status?: TransactionStatus;
+
+  @IsOptional()
+  @IsEnum(AccountType)
+  accountType?: AccountType;
 
   @IsOptional()
   @Type(() => Number)
