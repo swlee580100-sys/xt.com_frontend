@@ -14,6 +14,8 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { TransactionLogService } from './transaction-log.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { QueryTransactionsDto } from './dto/query-transactions.dto';
+import { SettleTransactionDto } from './dto/settle-transaction.dto';
+import { UnifiedTransactionDto, TransactionType } from './dto/unified-transaction.dto';
 import type { UserEntity } from '../auth/entities/user.entity';
 
 @Controller('transactions')
@@ -21,16 +23,34 @@ export class TransactionLogController {
   constructor(private readonly transactionLogService: TransactionLogService) {}
 
   /**
-   * 创建新交易
+   * 统一交易接口（创建新交易或结算交易）
    * POST /transactions
    */
   @UseGuards(JwtAuthGuard)
   @Post()
-  createTransaction(
+  async handleTransaction(
     @CurrentUser() user: UserEntity,
-    @Body() dto: CreateTransactionDto,
+    @Body() dto: UnifiedTransactionDto,
   ) {
-    return this.transactionLogService.createTransaction(user.id, dto);
+    if (dto.type === TransactionType.ENTRY) {
+      // 入场：创建新交易
+      const createDto: CreateTransactionDto = {
+        assetType: dto.assetType!,
+        direction: dto.direction!,
+        duration: dto.duration!,
+        entryPrice: dto.price,
+        investAmount: dto.investAmount!,
+        returnRate: dto.returnRate!,
+        accountType: dto.accountType,
+      };
+      return this.transactionLogService.createTransaction(user.id, createDto);
+    } else {
+      // 出场：结算交易
+      return this.transactionLogService.settleTransaction(
+        dto.orderNumber!,
+        dto.price,
+      );
+    }
   }
 
   /**
@@ -67,13 +87,16 @@ export class TransactionLogController {
   }
 
   /**
-   * 手动结算交易（测试用）
+   * 手动结算交易
    * POST /transactions/:orderNumber/settle
    */
   @UseGuards(JwtAuthGuard)
   @Post(':orderNumber/settle')
-  settleTransaction(@Param('orderNumber') orderNumber: string) {
-    return this.transactionLogService.settleTransaction(orderNumber);
+  settleTransaction(
+    @Param('orderNumber') orderNumber: string,
+    @Body() dto: SettleTransactionDto,
+  ) {
+    return this.transactionLogService.settleTransaction(orderNumber, dto.exitPrice);
   }
 
   /**

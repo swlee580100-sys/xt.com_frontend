@@ -52,8 +52,8 @@ export class TransactionLogService {
       );
     }
 
-    // 获取当前市场价格（这里需要从市场数据服务获取）
-    const currentPrice = await this.getCurrentPrice(dto.assetType);
+    // 使用前端传入的入场价格
+    const entryPrice = dto.entryPrice;
 
     // 生成唯一订单号
     const orderNumber = generateOrderNumber();
@@ -63,7 +63,7 @@ export class TransactionLogService {
     const expiryTime = new Date(entryTime.getTime() + dto.duration * 1000);
 
     // 计算点差（简化处理，实际应该从配置或市场数据获取）
-    const spread = currentPrice * 0.0001; // 0.01% 点差
+    const spread = entryPrice * 0.0001; // 0.01% 点差
 
     // 创建交易记录
     const transaction = await this.prisma.transactionLog.create({
@@ -76,8 +76,8 @@ export class TransactionLogService {
         entryTime,
         expiryTime,
         duration: dto.duration,
-        entryPrice: currentPrice,
-        currentPrice: currentPrice,
+        entryPrice: entryPrice,
+        currentPrice: entryPrice,
         spread,
         investAmount: dto.investAmount,
         returnRate: dto.returnRate,
@@ -190,7 +190,10 @@ export class TransactionLogService {
   /**
    * 结算交易
    */
-  async settleTransaction(orderNumber: string): Promise<TransactionResponseDto> {
+  async settleTransaction(
+    orderNumber: string,
+    exitPrice: number,
+  ): Promise<TransactionResponseDto> {
     const transaction = await this.prisma.transactionLog.findUnique({
       where: { orderNumber },
     });
@@ -203,8 +206,8 @@ export class TransactionLogService {
       throw new BadRequestException(`订单 ${orderNumber} 已经结算或取消`);
     }
 
-    // 获取最新的市场价格作为出场价
-    const exitPrice = await this.getCurrentPrice(transaction.assetType);
+    // 使用前端传入的出场价格
+    // const exitPrice = await this.getCurrentPrice(transaction.assetType); // 不再自动获取
 
     // 计算盈亏
     const isWin = this.calculateIsWin(
@@ -326,7 +329,9 @@ export class TransactionLogService {
     let settledCount = 0;
     for (const transaction of expiredTransactions) {
       try {
-        await this.settleTransaction(transaction.orderNumber);
+        // 获取当前市场价格作为出场价
+        const exitPrice = await this.getCurrentPrice(transaction.assetType);
+        await this.settleTransaction(transaction.orderNumber, exitPrice);
         settledCount++;
       } catch (error) {
         this.logger.error(
@@ -341,17 +346,22 @@ export class TransactionLogService {
   }
 
   /**
-   * 获取用户统计数据
+   * 获取用户统计数据（仅统计真实仓）
    */
   async getUserStatistics(userId: string) {
     const [totalTransactions, winTransactions, user] = await Promise.all([
       this.prisma.transactionLog.count({
-        where: { userId, status: TransactionStatus.SETTLED },
+        where: {
+          userId,
+          status: TransactionStatus.SETTLED,
+          accountType: AccountType.REAL, // 只统计真实仓
+        },
       }),
       this.prisma.transactionLog.count({
         where: {
           userId,
           status: TransactionStatus.SETTLED,
+          accountType: AccountType.REAL, // 只统计真实仓
           actualReturn: { gt: 0 },
         },
       }),
@@ -436,9 +446,10 @@ export class TransactionLogService {
     if (!user) return;
 
     // 根据账户类型获取当前余额
-    const currentBalance = accountType === AccountType.DEMO
-      ? Number(user.demoBalance)
-      : Number(user.realBalance);
+    const currentBalance =
+      accountType === AccountType.DEMO
+        ? Number(user.demoBalance)
+        : Number(user.realBalance);
 
     const currentProfitLoss = Number(user.totalProfitLoss);
     const currentTotalTrades = user.totalTrades;
@@ -446,33 +457,36 @@ export class TransactionLogService {
     // 计算新的余额（实得可能是负数）
     const newBalance = currentBalance + investAmount + actualReturn;
 
-    // 计算新的总盈亏
-    const newProfitLoss = currentProfitLoss + actualReturn;
+    // 只有真实仓才更新总盈亏和胜率
+    let updateData: any;
 
-    // 计算新的交易次数
-    const newTotalTrades = currentTotalTrades + 1;
+    if (accountType === AccountType.REAL) {
+      // 真实仓：更新总盈亏、交易次数和胜率
+      const newProfitLoss = currentProfitLoss + actualReturn;
+      const newTotalTrades = currentTotalTrades + 1;
 
-    // 计算新的胜率
-    const winTrades = await this.prisma.transactionLog.count({
-      where: {
-        userId,
-        status: TransactionStatus.SETTLED,
-        actualReturn: { gt: 0 },
-      },
-    });
-    const newWinRate = (winTrades / newTotalTrades) * 100;
+      // 计算新的胜率（只统计真实仓）
+      const winTrades = await this.prisma.transactionLog.count({
+        where: {
+          userId,
+          status: TransactionStatus.SETTLED,
+          accountType: AccountType.REAL, // 只统计真实仓
+          actualReturn: { gt: 0 },
+        },
+      });
+      const newWinRate = (winTrades / newTotalTrades) * 100;
 
-    // 根据账户类型更新余额
-    const updateData: any = {
-      totalProfitLoss: newProfitLoss,
-      totalTrades: newTotalTrades,
-      winRate: newWinRate,
-    };
-
-    if (accountType === AccountType.DEMO) {
-      updateData.demoBalance = newBalance;
+      updateData = {
+        realBalance: newBalance,
+        totalProfitLoss: newProfitLoss,
+        totalTrades: newTotalTrades,
+        winRate: newWinRate,
+      };
     } else {
-      updateData.realBalance = newBalance;
+      // 模拟仓：只更新模拟仓余额，不影响统计数据
+      updateData = {
+        demoBalance: newBalance,
+      };
     }
 
     await this.prisma.user.update({

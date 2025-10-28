@@ -28,7 +28,9 @@
       "Bash(redis-cli ping:*)",
       "Bash(npx prisma studio)",
       "Bash(/private/tmp/test_transactions.sh)",
-      "Bash(/private/tmp/check-production-db.sh:*)"
+      "Bash(/private/tmp/check-production-db.sh:*)",
+      "Bash(pandoc:*)",
+      "Bash(npx:*)"
     ],
     "deny": [],
     "ask": []

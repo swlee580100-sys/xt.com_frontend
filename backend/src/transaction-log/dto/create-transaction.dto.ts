@@ -14,6 +14,10 @@ export class CreateTransactionDto {
 
   @IsNumber()
   @IsPositive()
+  entryPrice!: number; // 入场价格（前端传入）
+
+  @IsNumber()
+  @IsPositive()
   investAmount!: number; // 投入金额
 
   @IsNumber()

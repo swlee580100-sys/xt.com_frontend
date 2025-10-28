@@ -214,26 +214,32 @@ Authorization: Bearer {accessToken}
 
 ## 交易流水接口
 
-### 1. 创建交易
+### 1. 统一交易接口（创建交易或结算交易）
 
 **POST** `/api/transactions`
 
-创建新的交易订单（买涨/买跌）。
+这是一个统一的交易接口，通过 `type` 字段区分是创建新交易（入场）还是结算交易（出场）。
 
 **Headers**:
 ```
 Authorization: Bearer {accessToken}
 ```
 
+#### 1.1 创建新交易（入场）
+
+当 `type` 为 `entryPrice` 时，创建新的交易订单（买涨/买跌）。
+
 **请求体**:
 ```json
 {
-  "assetType": "BTC",          // 资产类型: BTC, ETH, ADA, SOL等
-  "direction": "CALL",         // CALL=买涨, PUT=买跌
-  "duration": 60,              // 时长（秒），如60秒
-  "investAmount": 100,         // 投入金额
-  "returnRate": 0.85,          // 报酬率，0.85表示85%
-  "accountType": "DEMO"        // 可选，账户类型: DEMO=虚拟账户, REAL=真实账户，默认DEMO
+  "type": "entryPrice",         // 交易类型：entryPrice=入场
+  "price": 65000,               // 入场价格
+  "assetType": "BTC",           // 资产类型: BTC, ETH, ADA, SOL等
+  "direction": "CALL",          // CALL=买涨, PUT=买跌
+  "duration": 60,               // 时长（秒），如60秒
+  "investAmount": 100,          // 投入金额
+  "returnRate": 0.85,           // 报酬率，0.85表示85%
+  "accountType": "DEMO"         // 可选，账户类型: DEMO=虚拟账户, REAL=真实账户，默认DEMO
 }
 ```
 
@@ -263,12 +269,71 @@ Authorization: Bearer {accessToken}
 }
 ```
 
+#### 1.2 结算交易（出场）
+
+当 `type` 为 `exitPrice` 时，根据订单号结算指定的交易。
+
+**请求体**:
+```json
+{
+  "type": "exitPrice",                       // 交易类型：exitPrice=出场
+  "price": 65100,                            // 出场价格
+  "orderNumber": "TXN1729581234567ABC123"    // 要结算的订单号
+}
+```
+
+**响应** (200 OK):
+```json
+{
+  "id": "uuid",
+  "userId": "user-uuid",
+  "orderNumber": "TXN1729581234567ABC123",
+  "accountType": "DEMO",
+  "assetType": "BTC",
+  "direction": "CALL",
+  "entryTime": "2025-10-22T09:00:00.000Z",
+  "expiryTime": "2025-10-22T09:01:00.000Z",
+  "duration": 60,
+  "entryPrice": 65000.00000000,
+  "currentPrice": 65100.00000000,
+  "exitPrice": 65100.00000000,         // 结算时的价格
+  "spread": 6.50000000,
+  "investAmount": 100.00000000,
+  "returnRate": 0.8500,
+  "actualReturn": 185.00000000,        // 盈利
+  "status": "SETTLED",
+  "createdAt": "2025-10-22T09:00:00.000Z",
+  "updatedAt": "2025-10-22T09:01:05.000Z",
+  "settledAt": "2025-10-22T09:01:05.000Z"
+}
+```
+
+**盈亏计算规则**:
+- **买涨(CALL)盈利**: 出场价 > 入场价 → 返还本金 + 收益 (investAmount * (1 + returnRate))
+- **买涨(CALL)亏损**: 出场价 ≤ 入场价 → 损失本金 (actualReturn = -investAmount)
+- **买跌(PUT)盈利**: 出场价 < 入场价 → 返还本金 + 收益
+- **买跌(PUT)亏损**: 出场价 ≥ 入场价 → 损失本金
+
 **错误响应**:
 ```json
-// 余额不足
+// 余额不足（入场时）
 {
   "statusCode": 400,
   "message": "虚拟账户余额不足。当前余额: 50, 需要: 100",
+  "error": "Bad Request"
+}
+
+// 订单不存在（出场时）
+{
+  "statusCode": 404,
+  "message": "订单 TXN1729581234567ABC123 不存在",
+  "error": "Not Found"
+}
+
+// 订单已结算（出场时）
+{
+  "statusCode": 400,
+  "message": "订单 TXN1729581234567ABC123 已经结算或取消",
   "error": "Bad Request"
 }
 
@@ -387,71 +452,7 @@ GET /api/transactions/TXN1729581234567ABC123
 }
 ```
 
-### 4. 手动结算交易
-
-**POST** `/api/transactions/:orderNumber/settle`
-
-手动结算交易（测试用途，正常情况下由系统自动结算）。
-
-**Headers**:
-```
-Authorization: Bearer {accessToken}
-```
-
-**示例请求**:
-```
-POST /api/transactions/TXN1729581234567ABC123/settle
-```
-
-**响应** (200 OK):
-```json
-{
-  "id": "uuid",
-  "userId": "user-uuid",
-  "orderNumber": "TXN1729581234567ABC123",
-  "assetType": "BTC",
-  "direction": "CALL",
-  "entryTime": "2025-10-22T09:00:00.000Z",
-  "expiryTime": "2025-10-22T09:01:00.000Z",
-  "duration": 60,
-  "entryPrice": 65000.00000000,
-  "currentPrice": 65100.00000000,
-  "exitPrice": 65100.00000000,         // 结算时的价格
-  "spread": 6.50000000,
-  "investAmount": 100.00000000,
-  "returnRate": 0.8500,
-  "actualReturn": 185.00000000,        // 盈利
-  "status": "SETTLED",
-  "createdAt": "2025-10-22T09:00:00.000Z",
-  "updatedAt": "2025-10-22T09:01:05.000Z",
-  "settledAt": "2025-10-22T09:01:05.000Z"
-}
-```
-
-**盈亏计算规则**:
-- **买涨(CALL)盈利**: 出场价 > 入场价 → 返还本金 + 收益 (investAmount * (1 + returnRate))
-- **买涨(CALL)亏损**: 出场价 ≤ 入场价 → 损失本金 (actualReturn = -investAmount)
-- **买跌(PUT)盈利**: 出场价 < 入场价 → 返还本金 + 收益
-- **买跌(PUT)亏损**: 出场价 ≥ 入场价 → 损失本金
-
-**错误响应**:
-```json
-// 订单不存在
-{
-  "statusCode": 404,
-  "message": "订单 TXN1729581234567ABC123 不存在",
-  "error": "Not Found"
-}
-
-// 订单已结算
-{
-  "statusCode": 400,
-  "message": "订单 TXN1729581234567ABC123 已经结算或取消",
-  "error": "Bad Request"
-}
-```
-
-### 5. 取消交易
+### 4. 取消交易
 
 **POST** `/api/transactions/:orderNumber/cancel`
 
@@ -507,6 +508,8 @@ POST /api/transactions/TXN1729581234567ABC123/cancel
 
 获取当前用户的交易统计数据。
 
+**重要说明**：此接口返回的统计数据（totalProfitLoss、winRate、totalTrades等）**仅统计真实账户（REAL）的交易**，不包括虚拟账户（DEMO）的交易数据。
+
 **Headers**:
 ```
 Authorization: Bearer {accessToken}
@@ -518,12 +521,12 @@ Authorization: Bearer {accessToken}
   "accountBalance": 10500.00,        // 当前账户余额 (旧字段，保留兼容性)
   "demoBalance": 10500.00,           // 虚拟账户余额
   "realBalance": 5000.00,            // 真实账户余额
-  "totalProfitLoss": 500.00,         // 总盈亏
-  "winRate": 65.50,                  // 胜率 (%)
-  "totalTrades": 20,                 // 总交易次数（包括未结算）
-  "settledTrades": 18,               // 已结算交易次数
-  "winningTrades": 12,               // 盈利交易次数
-  "losingTrades": 6                  // 亏损交易次数
+  "totalProfitLoss": 500.00,         // 总盈亏（仅真实账户）
+  "winRate": 65.50,                  // 胜率 (%)（仅真实账户）
+  "totalTrades": 20,                 // 总交易次数（仅真实账户）
+  "settledTrades": 18,               // 已结算交易次数（仅真实账户）
+  "winningTrades": 12,               // 盈利交易次数（仅真实账户）
+  "losingTrades": 6                  // 亏损交易次数（仅真实账户）
 }
 ```
 
@@ -560,9 +563,9 @@ Authorization: Bearer {accessToken}
   accountBalance: number;          // 账户余额（旧字段，保留兼容性）
   demoBalance: number;             // 虚拟交易账户余额，默认 10000
   realBalance: number;             // 真实交易账户余额，默认 0
-  totalProfitLoss: number;         // 总盈亏
-  winRate: number;                 // 胜率 (0-100)
-  totalTrades: number;             // 交易次数
+  totalProfitLoss: number;         // 总盈亏（仅统计真实账户）
+  winRate: number;                 // 胜率 (0-100)（仅统计真实账户）
+  totalTrades: number;             // 交易次数（仅统计真实账户）
   verificationStatus: string;      // 身份状态: UNVERIFIED | VERIFIED
 
   createdAt: Date;                 // 创建时间
@@ -681,16 +684,19 @@ curl -X POST http://localhost:3000/api/auth/login \
     "password": "password123"
   }'
 
-# 3. 创建交易（买涨 BTC，60秒，投入100）
+# 3. 创建交易（入场：买涨 BTC，60秒，投入100）
 curl -X POST http://localhost:3000/api/transactions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -d '{
+    "type": "entryPrice",
+    "price": 65000,
     "assetType": "BTC",
     "direction": "CALL",
     "duration": 60,
     "investAmount": 100,
-    "returnRate": 0.85
+    "returnRate": 0.85,
+    "accountType": "DEMO"
   }'
 
 # 4. 查看交易列表
@@ -701,9 +707,15 @@ curl -X GET "http://localhost:3000/api/transactions?page=1&limit=10" \
 curl -X GET http://localhost:3000/api/transactions/statistics \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 
-# 6. 手动结算交易
-curl -X POST http://localhost:3000/api/transactions/TXN1729581234567ABC123/settle \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+# 6. 结算交易（出场）
+curl -X POST http://localhost:3000/api/transactions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -d '{
+    "type": "exitPrice",
+    "price": 65100,
+    "orderNumber": "TXN1729581234567ABC123"
+  }'
 
 # 7. 再次查看统计数据（观察余额、盈亏、胜率变化）
 curl -X GET http://localhost:3000/api/transactions/statistics \
@@ -871,9 +883,28 @@ export const authApi = {
 import { apiClient } from './client';
 
 export const transactionApi = {
-  // 创建交易
-  async create(data) {
-    const response = await apiClient.post('/transactions', data);
+  // 创建交易（入场）
+  async createEntry(data) {
+    const response = await apiClient.post('/transactions', {
+      type: 'entryPrice',
+      price: data.entryPrice,
+      assetType: data.assetType,
+      direction: data.direction,
+      duration: data.duration,
+      investAmount: data.investAmount,
+      returnRate: data.returnRate,
+      accountType: data.accountType,
+    });
+    return response.data;
+  },
+
+  // 结算交易（出场）
+  async settleExit(orderNumber, exitPrice) {
+    const response = await apiClient.post('/transactions', {
+      type: 'exitPrice',
+      price: exitPrice,
+      orderNumber: orderNumber,
+    });
     return response.data;
   },
 
@@ -892,12 +923,6 @@ export const transactionApi = {
   // 获取统计数据
   async getStatistics() {
     const response = await apiClient.get('/transactions/statistics');
-    return response.data;
-  },
-
-  // 结算交易
-  async settle(orderNumber) {
-    const response = await apiClient.post(`/transactions/${orderNumber}/settle`);
     return response.data;
   },
 
@@ -953,15 +978,17 @@ function App() {
     }
   };
 
-  // 创建交易
-  const handleCreateTransaction = async () => {
+  // 创建交易（入场）
+  const handleCreateTransaction = async (currentPrice) => {
     try {
-      const transaction = await transactionApi.create({
+      const transaction = await transactionApi.createEntry({
+        entryPrice: currentPrice,  // 前端传入当前价格
         assetType: 'BTC',
         direction: 'CALL',
         duration: 60,
         investAmount: 100,
         returnRate: 0.85,
+        accountType: 'DEMO',
       });
 
       console.log('交易创建成功:', transaction);
@@ -971,6 +998,20 @@ function App() {
       await fetchStatistics();
     } catch (error) {
       console.error('创建交易失败:', error.message);
+    }
+  };
+
+  // 结算交易（出场）
+  const handleSettleTransaction = async (orderNumber, currentPrice) => {
+    try {
+      const result = await transactionApi.settleExit(orderNumber, currentPrice);
+      console.log('交易结算成功:', result);
+
+      // 刷新交易列表和统计数据
+      await fetchTransactions();
+      await fetchStatistics();
+    } catch (error) {
+      console.error('结算交易失败:', error.message);
     }
   };
 
