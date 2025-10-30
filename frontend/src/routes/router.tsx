@@ -12,7 +12,7 @@ import { useMemo } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
 import { DashboardPage } from '@/routes/dashboard';
 import { LoginPage } from '@/routes/login';
-import { OrdersPage } from '@/routes/orders';
+import { TransactionsPage } from '@/routes/transactions';
 import { MarketDataPage } from '@/routes/market-data';
 import { UsersPage } from '@/routes/users';
 import { SettingsPage } from '@/routes/settings';
@@ -46,7 +46,7 @@ const dashboardRoute = createRoute({
 const ordersRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/orders',
-  component: OrdersPage
+  component: TransactionsPage
 });
 
 const marketDataRoute = createRoute({

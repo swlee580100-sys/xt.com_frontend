@@ -252,7 +252,8 @@ export class MarketDataService implements OnModuleInit, OnModuleDestroy {
     // });
   }
 
-  @Cron(CronExpression.EVERY_10_MINUTES)
+  // TODO: 暂时禁用 CoinGecko API 定时任务
+  // @Cron(CronExpression.EVERY_10_MINUTES)
   async hydrateMetadata(): Promise<void> {
     const baseUrl = this.configService.get<string>('marketData.coingecko.baseUrl');
     const symbols = this.configService.get<string[]>('marketData.binance.symbols');

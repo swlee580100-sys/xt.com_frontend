@@ -115,10 +115,10 @@ export class TransactionLogService {
   }
 
   /**
-   * 获取用户的交易记录列表
+   * 获取交易记录列表（所有用户的交易）
    */
   async getUserTransactions(
-    userId: string,
+    userId: string | null,
     query: QueryTransactionsDto,
   ): Promise<{
     data: TransactionResponseDto[];
@@ -130,29 +130,69 @@ export class TransactionLogService {
     const skip = (page - 1) * limit;
 
     const where: Prisma.TransactionLogWhereInput = {
-      userId,
+      ...(userId && { userId }),
       ...(assetType && { assetType }),
       ...(direction && { direction }),
       ...(status && { status }),
       ...(accountType && { accountType }),
     };
 
-    const [transactions, total] = await Promise.all([
-      this.prisma.transactionLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.transactionLog.count({ where }),
-    ]);
+    this.logger.log(`查询交易记录 - userId: ${userId || 'all'}, where: ${JSON.stringify(where)}, page: ${page}, limit: ${limit}`);
 
-    return {
-      data: transactions.map((t) => this.mapToResponseDto(t)),
-      total,
-      page,
-      limit,
-    };
+    // 先检查数据库连接和表是否存在
+    try {
+      const testCount = await this.prisma.transactionLog.count();
+      this.logger.log(`数据库连接正常，TransactionLog 表总记录数: ${testCount}`);
+    } catch (error: any) {
+      this.logger.error(`数据库查询失败: ${error?.message || error}`);
+      this.logger.error(`错误代码: ${error?.code}`);
+      this.logger.error(`错误详情: ${JSON.stringify(error)}`);
+      throw error;
+    }
+
+    let transactions: any[] = [];
+    let total = 0;
+    
+    try {
+      this.logger.log(`开始执行查询 - where: ${JSON.stringify(where)}, skip: ${skip}, take: ${limit}`);
+      
+      [transactions, total] = await Promise.all([
+        this.prisma.transactionLog.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.transactionLog.count({ where }),
+      ]);
+      
+      this.logger.log(`查询成功 - 找到 ${transactions.length} 条记录，总计: ${total}`);
+      
+      if (transactions.length > 0) {
+        this.logger.log(`第一条记录示例 - id: ${transactions[0].id}, orderNumber: ${transactions[0].orderNumber}`);
+      } else {
+        this.logger.warn(`查询结果为空，但总记录数为 ${total}，可能 skip/take 参数有问题`);
+      }
+    } catch (error: any) {
+      this.logger.error(`查询执行失败: ${error?.message || error}`);
+      this.logger.error(`错误堆栈: ${error?.stack}`);
+      throw error;
+    }
+
+    try {
+      const mappedData = transactions.map((t) => this.mapToResponseDto(t));
+      this.logger.log(`数据映射成功 - 映射了 ${mappedData.length} 条记录`);
+      
+      return {
+        data: mappedData,
+        total,
+        page,
+        limit,
+      };
+    } catch (error: any) {
+      this.logger.error(`数据映射失败: ${error?.message || error}`);
+      throw error;
+    }
   }
 
   /**

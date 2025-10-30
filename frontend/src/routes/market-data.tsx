@@ -34,13 +34,13 @@ export const MarketDataPage = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Real-time Market Updates</CardTitle>
+        <CardTitle>实时市场更新</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
           {updates.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              Connect the websocket server to see live price updates.
+              连接 WebSocket 服务器以查看实时价格更新。
             </p>
           )}
           {updates.map(update => (

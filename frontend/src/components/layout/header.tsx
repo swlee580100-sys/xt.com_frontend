@@ -7,8 +7,8 @@ export const Header = () => {
   return (
     <header className="flex items-center justify-between border-b bg-background px-4 py-3">
       <div>
-        <h1 className="text-lg font-semibold">Welcome back{user ? `, ${user.displayName}` : ''}</h1>
-        <p className="text-sm text-muted-foreground">Monitor trading activity and simulate strategies.</p>
+        <h1 className="text-lg font-semibold">欢迎回来{user ? `，${user.displayName}` : ''}</h1>
+        <p className="text-sm text-muted-foreground">监控交易活动并模拟策略。</p>
       </div>
       {user && (
         <div className="flex items-center gap-3 text-sm">
@@ -22,7 +22,7 @@ export const Header = () => {
               void logout();
             }}
           >
-            Logout
+            退出登录
           </Button>
         </div>
       )}

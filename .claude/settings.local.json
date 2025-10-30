@@ -30,7 +30,16 @@
       "Bash(/private/tmp/test_transactions.sh)",
       "Bash(/private/tmp/check-production-db.sh:*)",
       "Bash(pandoc:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "Bash(mkdir:*)",
+      "Bash(/tmp/test_user_list.sh:*)",
+      "Bash(/tmp/test_user_management.sh)",
+      "Bash(awk:*)",
+      "Bash(tree:*)",
+      "Bash(/tmp/test_roles.sh:*)",
+      "Bash(/tmp/test_admin_login.sh:*)",
+      "Bash(/tmp/test_logout.sh)",
+      "Bash(/tmp/test_customer_login.sh:*)"
     ],
     "deny": [],
     "ask": []

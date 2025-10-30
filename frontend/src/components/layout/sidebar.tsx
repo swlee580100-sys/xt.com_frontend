@@ -4,11 +4,11 @@ import { Link, useRouterState } from '@tanstack/react-router';
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: Home },
-  { to: '/orders', label: 'Orders', icon: ShoppingBag },
-  { to: '/market-data', label: 'Market Data', icon: BarChart3 },
-  { to: '/users', label: 'Users', icon: Users },
-  { to: '/settings', label: 'Settings', icon: Settings }
+  { to: '/', label: '仪表板', icon: Home },
+  { to: '/orders', label: '交易流水', icon: ShoppingBag },
+  { to: '/market-data', label: '市场数据', icon: BarChart3 },
+  { to: '/users', label: '用户', icon: Users },
+  { to: '/settings', label: '设置', icon: Settings }
 ];
 
 export const Sidebar = () => {
@@ -16,7 +16,7 @@ export const Sidebar = () => {
 
   return (
     <aside className="hidden w-56 flex-shrink-0 border-r bg-card md:flex md:flex-col">
-      <div className="p-4 text-lg font-semibold">Crypto Sim</div>
+      <div className="p-4 text-lg font-semibold">加密货币模拟</div>
       <nav className="flex-1 space-y-1 px-2">
         {navItems.map(item => {
           const Icon = item.icon;

@@ -4,12 +4,15 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { PrismaService } from '../../prisma/prisma.service';
+import type { Role } from '../decorators/roles.decorator';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(
     private readonly reflector: Reflector,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService
   ) {
     super();
   }
@@ -49,13 +52,61 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       }
 
       // 使用提供的 userId 或默认的测试用户
-      const defaultUserId = queryUserId || bodyUserId || '854135be-c8d9-4dc4-b18a-39ddbde4e8fd'; // test@example.com 的 ID
+      const userId = queryUserId || bodyUserId || '854135be-c8d9-4dc4-b18a-39ddbde4e8fd'; // test@example.com 的 ID
 
-      // 注入用户信息到 request
+      // 从数据库加载用户的真实信息（包括角色）
+      try {
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            roles: true,
+            isActive: true
+          }
+        });
+
+        if (user) {
+          // 标准化角色格式
+          const normalizeRoles = (value: unknown): Role[] => {
+            if (Array.isArray(value)) {
+              return value as Role[];
+            }
+            if (typeof value === 'string') {
+              try {
+                const parsed = JSON.parse(value);
+                return Array.isArray(parsed) ? (parsed as Role[]) : ['trader'];
+              } catch {
+                return ['trader'];
+              }
+            }
+            return ['trader'];
+          };
+
+          // 注入用户信息到 request
+          request.user = {
+            id: user.id,
+            email: user.email,
+            displayName: user.displayName,
+            roles: normalizeRoles(user.roles),
+            isActive: user.isActive
+          };
+
+          return true;
+        }
+      } catch (error) {
+        // 如果数据库查询失败，使用默认用户
+        console.warn('Failed to load user from database in dev mode:', error);
+      }
+
+      // 如果用户不存在或查询失败，使用默认用户
       request.user = {
-        id: defaultUserId,
+        id: userId,
         email: 'test@example.com',
-        roles: ['trader']
+        displayName: 'Test User',
+        roles: ['trader'],
+        isActive: true
       };
 
       return true;

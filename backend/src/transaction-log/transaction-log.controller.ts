@@ -6,6 +6,7 @@ import {
   Param,
   Query,
   UseGuards,
+  Logger,
 } from '@nestjs/common';
 
 import { Public } from '../common/decorators/public.decorator';
@@ -54,16 +55,15 @@ export class TransactionLogController {
   }
 
   /**
-   * 获取当前用户的交易列表
+   * 获取所有交易列表
    * GET /transactions
    */
   @UseGuards(JwtAuthGuard)
   @Get()
-  getUserTransactions(
-    @CurrentUser() user: UserEntity,
-    @Query() query: QueryTransactionsDto,
-  ) {
-    return this.transactionLogService.getUserTransactions(user.id, query);
+  getUserTransactions(@Query() query: QueryTransactionsDto) {
+    const logger = new Logger(TransactionLogController.name);
+    logger.log(`获取交易列表 - query: ${JSON.stringify(query)}`);
+    return this.transactionLogService.getUserTransactions(null, query);
   }
 
   /**

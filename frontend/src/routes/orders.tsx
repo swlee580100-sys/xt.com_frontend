@@ -4,12 +4,11 @@ export const OrdersPage = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Orders</CardTitle>
+        <CardTitle>订单</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground">
-          Order management views will live here. Integrate with the backend order APIs to display
-          simulated trades and statuses.
+          订单管理视图将显示在这里。集成后端订单 API 以显示模拟交易和状态。
         </p>
       </CardContent>
     </Card>

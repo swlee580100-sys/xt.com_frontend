@@ -16,6 +16,8 @@ import { RedisModule } from '../redis/redis.module';
 import { QueueModule } from '../queue/queue.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { AuthModule } from '../auth/auth.module';
+import { AdminAuthModule } from '../admin-auth/admin-auth.module';
+import { UsersModule } from '../users/users.module';
 import { MarketDataModule } from '../market-data/market-data.module';
 import { MailModule } from '../mail/mail.module';
 import { TransactionLogModule } from '../transaction-log/transaction-log.module';
@@ -105,6 +107,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
     // TODO: 等需要使用消息队列功能时再启用
     // QueueModule,
     AuthModule,
+    AdminAuthModule,
+    UsersModule,
     RealtimeModule,
     MarketDataModule,
     MailModule,

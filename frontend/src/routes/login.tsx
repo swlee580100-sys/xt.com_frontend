@@ -44,7 +44,7 @@ export const LoginPage = () => {
       await login(values.email, values.password);
       // Navigation will happen via the useEffect above when isAuthenticated changes
     } catch (err) {
-      setError('Invalid email or password');
+      setError('邮箱或密码错误');
     }
   });
 
@@ -52,18 +52,18 @@ export const LoginPage = () => {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Crypto Sim Admin</CardTitle>
-          <CardDescription>Access the administration console.</CardDescription>
+          <CardTitle>加密货币模拟后台管理</CardTitle>
+          <CardDescription>访问管理控制台</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">邮箱</Label>
               <Input id="email" type="email" placeholder="you@example.com" {...register('email')} />
               {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">密码</Label>
               <Input id="password" type="password" {...register('password')} />
               {errors.password && (
                 <p className="text-sm text-destructive">{errors.password.message}</p>
@@ -71,11 +71,11 @@ export const LoginPage = () => {
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in…' : 'Sign in'}
+              {loading ? '登录中…' : '登录'}
             </Button>
           </form>
           <p className="mt-6 text-center text-sm text-muted-foreground">
-            Need an account? Contact your administrator for access.
+            需要账户？请联系管理员获取访问权限。
           </p>
         </CardContent>
       </Card>

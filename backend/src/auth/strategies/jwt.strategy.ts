@@ -21,7 +21,39 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string }): Promise<UserEntity> {
+  async validate(payload: { sub: string; type?: string }): Promise<UserEntity> {
+    // 如果是管理员，从 Admin 表查找
+    if (payload.type === 'admin') {
+      const admin = await this.prisma.admin.findUnique({
+        where: { id: payload.sub }
+      });
+
+      if (!admin || !admin.isActive) {
+        throw new UnauthorizedException();
+      }
+
+      // 返回管理员用户对象，角色为 admin
+      return {
+        id: admin.id,
+        email: admin.email,
+        displayName: admin.displayName,
+        roles: ['admin'] as Role[],
+        isActive: admin.isActive,
+        lastLoginAt: admin.lastLoginAt ?? null,
+        createdAt: admin.createdAt,
+        updatedAt: admin.updatedAt,
+        phoneNumber: null,
+        accountBalance: 0,
+        demoBalance: 0,
+        realBalance: 0,
+        totalProfitLoss: 0,
+        winRate: 0,
+        totalTrades: 0,
+        verificationStatus: 'VERIFIED' as const,
+      };
+    }
+
+    // 普通用户，从 User 表查找
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub }
     });
