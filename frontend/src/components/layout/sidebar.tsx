@@ -1,4 +1,4 @@
-import { BarChart3, ShoppingBag, Users, Settings, Home } from 'lucide-react';
+import { BarChart3, ShoppingBag, Users, Settings, Home, FileText } from 'lucide-react';
 import { Link, useRouterState } from '@tanstack/react-router';
 
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ const navItems = [
   { to: '/orders', label: '交易流水', icon: ShoppingBag },
   { to: '/market-data', label: '市场数据', icon: BarChart3 },
   { to: '/users', label: '用户', icon: Users },
+  { to: '/cms', label: 'CMS 管理', icon: FileText },
   { to: '/settings', label: '设置', icon: Settings }
 ];
 

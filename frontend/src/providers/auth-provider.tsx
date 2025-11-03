@@ -19,7 +19,7 @@ interface AuthContextValue {
   tokens: AuthTokens | null;
   isAuthenticated: boolean;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   register: (payload: { email: string; password: string; displayName: string }) => Promise<void>;
   logout: () => Promise<void>;
   api: ReturnType<typeof createApiClient>;
@@ -69,20 +69,23 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   }, [tokens]);
 
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (username: string, password: string) => {
       setLoading(true);
       try {
         const response = await axios.post<{ data: AuthResponse }>(
-          `${appConfig.apiUrl}/auth/login`,
-          { email, password },
+          `${appConfig.apiUrl}/admin/auth/login`,
+          { username, password },
           { headers: { 'Content-Type': 'application/json' } }
         );
 
         // Backend wraps response in { data: ... }
         const authData = response.data.data;
-        setUser(authData.user);
+        const userData = authData.user || authData.admin || null;
+        setUser(userData);
         setTokens(authData.tokens);
-        storage.saveUser(authData.user);
+        if (userData) {
+          storage.saveUser(userData);
+        }
         storage.saveTokens(authData.tokens);
       } finally {
         setLoading(false);
@@ -103,9 +106,12 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
 
         // Backend wraps response in { data: ... }
         const authData = response.data.data;
-        setUser(authData.user);
+        const userData = authData.user || null;
+        setUser(userData);
         setTokens(authData.tokens);
-        storage.saveUser(authData.user);
+        if (userData) {
+          storage.saveUser(userData);
+        }
         storage.saveTokens(authData.tokens);
       } finally {
         setLoading(false);
@@ -116,7 +122,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
 
   const logout = useCallback(async () => {
     try {
-      await api.post('/auth/logout');
+      await api.post('/admin/auth/logout');
     } catch (error) {
       console.warn('Failed to logout cleanly', error);
     } finally {

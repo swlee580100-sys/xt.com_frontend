@@ -21,8 +21,10 @@ export enum UserRole {
 }
 
 export enum VerificationStatus {
-  UNVERIFIED = 'UNVERIFIED',
-  VERIFIED = 'VERIFIED',
+  PENDING = 'PENDING',      // 待审核
+  IN_REVIEW = 'IN_REVIEW',  // 审核中
+  VERIFIED = 'VERIFIED',     // 验证成功
+  REJECTED = 'REJECTED',     // 验证失败
 }
 
 export class QueryUsersDto {

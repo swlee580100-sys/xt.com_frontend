@@ -39,7 +39,22 @@
       "Bash(/tmp/test_roles.sh:*)",
       "Bash(/tmp/test_admin_login.sh:*)",
       "Bash(/tmp/test_logout.sh)",
-      "Bash(/tmp/test_customer_login.sh:*)"
+      "Bash(/tmp/test_customer_login.sh:*)",
+      "Bash(PGPASSWORD=Tang1990 psql:*)",
+      "Bash(/tmp/reset-password.sh)",
+      "Bash(/tmp/check-production-db.sh)",
+      "Bash(npm install:*)",
+      "Bash(node /tmp/test-binance-api.mjs:*)",
+      "Bash(node /tmp/test-binance-from-backend.js:*)",
+      "Bash(/tmp/test_login_ip.sh:*)",
+      "Bash(xargs ps:*)",
+      "Bash(/tmp/test-backend-api.sh)",
+      "Bash(ps:*)",
+      "Bash(kill:*)",
+      "Bash(/tmp/test-verification-status.sh)",
+      "Bash(/tmp/test_avatar.sh:*)",
+      "Bash(/tmp/test_avatar_v2.sh)",
+      "Bash(/tmp/test_avatar_simple.sh)"
     ],
     "deny": [],
     "ask": []

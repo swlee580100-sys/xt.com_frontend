@@ -21,6 +21,9 @@ import { UsersModule } from '../users/users.module';
 import { MarketDataModule } from '../market-data/market-data.module';
 import { MailModule } from '../mail/mail.module';
 import { TransactionLogModule } from '../transaction-log/transaction-log.module';
+import { SettingsModule } from '../settings/settings.module';
+import { CmsModule } from '../cms/cms.module';
+import { PublicCmsModule } from '../cms/public/public-cms.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -109,10 +112,13 @@ import { RolesGuard } from '../common/guards/roles.guard';
     AuthModule,
     AdminAuthModule,
     UsersModule,
+    CmsModule,
+    PublicCmsModule,
     RealtimeModule,
     MarketDataModule,
     MailModule,
-    TransactionLogModule
+    TransactionLogModule,
+    SettingsModule
   ],
   controllers: [AppController],
   providers: [

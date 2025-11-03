@@ -119,8 +119,16 @@ export const TransactionsPage = () => {
       ),
     },
     {
+      accessorKey: 'userName',
+      header: '用户',
+      cell: ({ row }) => {
+        const userName = row.getValue('userName') as string | undefined;
+        return <div className="font-medium">{userName || '-'}</div>;
+      },
+    },
+    {
       accessorKey: 'assetType',
-      header: '资产类型',
+      header: '交易对',
       cell: ({ row }) => <Badge variant="outline">{row.getValue('assetType')}</Badge>,
     },
     {
@@ -204,6 +212,17 @@ export const TransactionsPage = () => {
         };
         const config = statusConfig[status] || { label: status, variant: 'default' };
         return <Badge variant={config.variant}>{config.label}</Badge>;
+      },
+    },
+    {
+      accessorKey: 'isManaged',
+      header: '托管',
+      cell: ({ row }) => {
+        const isManaged = row.original.isManaged;
+        if (isManaged) {
+          return <Badge variant="default">托管</Badge>;
+        }
+        return <span className="text-sm text-muted-foreground">-</span>;
       },
     },
     {
@@ -314,7 +333,7 @@ export const TransactionsPage = () => {
           <div className="mb-4 flex gap-2 flex-wrap">
             <Input
               type="text"
-              placeholder="资产类型 (如 BTC, ETH)"
+              placeholder="资产对 (如 BTC, ETH)"
               value={filters.assetType || ''}
               onChange={(e) => setFilters({ ...filters, assetType: e.target.value || undefined })}
               className="w-48"

@@ -3,10 +3,12 @@ export interface User {
   email: string;
   displayName: string;
   phoneNumber: string;
+  avatar?: string;
   roles: string[];
   isActive: boolean;
-  verificationStatus: 'VERIFIED' | 'UNVERIFIED';
+  verificationStatus: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';
   lastLoginAt: string | null;
+  lastLoginIp: string | null;  // 最后登录IP地址
   createdAt: string;
   updatedAt: string;
   demoBalance: string;
@@ -29,7 +31,7 @@ export interface QueryUsersParams {
   pageSize?: number;
   search?: string;
   role?: string;
-  verificationStatus?: 'VERIFIED' | 'UNVERIFIED';
+  verificationStatus?: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';
   sortBy?: 'createdAt' | 'updatedAt' | 'email' | 'displayName' | 'lastLoginAt';
   sortOrder?: 'asc' | 'desc';
   isActive?: boolean;
@@ -39,8 +41,9 @@ export interface UpdateUserDto {
   email?: string;
   displayName?: string;
   phoneNumber?: string;
+  avatar?: string;
   isActive?: boolean;
-  verificationStatus?: 'VERIFIED' | 'UNVERIFIED';
+  verificationStatus?: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';
 }
 
 export interface UpdateUserRolesDto {

@@ -9,15 +9,16 @@ import {
   Logger,
 } from '@nestjs/common';
 
-import { Public } from '../common/decorators/public.decorator';
+import type { UserEntity } from '../auth/entities/user.entity';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Public } from '../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { TransactionLogService } from './transaction-log.service';
+
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { QueryTransactionsDto } from './dto/query-transactions.dto';
 import { SettleTransactionDto } from './dto/settle-transaction.dto';
 import { UnifiedTransactionDto, TransactionType } from './dto/unified-transaction.dto';
-import type { UserEntity } from '../auth/entities/user.entity';
+import { TransactionLogService } from './transaction-log.service';
 
 @Controller('transactions')
 export class TransactionLogController {
@@ -50,20 +51,24 @@ export class TransactionLogController {
       return this.transactionLogService.settleTransaction(
         dto.orderNumber!,
         dto.price,
+        user.id,
       );
     }
   }
 
   /**
-   * 获取所有交易列表
+   * 获取当前用户的交易列表
    * GET /transactions
    */
   @UseGuards(JwtAuthGuard)
   @Get()
-  getUserTransactions(@Query() query: QueryTransactionsDto) {
+  getUserTransactions(
+    @CurrentUser() user: UserEntity,
+    @Query() query: QueryTransactionsDto,
+  ) {
     const logger = new Logger(TransactionLogController.name);
-    logger.log(`获取交易列表 - query: ${JSON.stringify(query)}`);
-    return this.transactionLogService.getUserTransactions(null, query);
+    logger.log(`获取交易列表 - userId: ${user.id}, query: ${JSON.stringify(query)}`);
+    return this.transactionLogService.getUserTransactions(user.id, query);
   }
 
   /**
@@ -82,8 +87,11 @@ export class TransactionLogController {
    */
   @UseGuards(JwtAuthGuard)
   @Get(':orderNumber')
-  getTransactionByOrderNumber(@Param('orderNumber') orderNumber: string) {
-    return this.transactionLogService.getTransactionByOrderNumber(orderNumber);
+  getTransactionByOrderNumber(
+    @CurrentUser() user: UserEntity,
+    @Param('orderNumber') orderNumber: string,
+  ) {
+    return this.transactionLogService.getTransactionByOrderNumber(orderNumber, user.id);
   }
 
   /**
@@ -93,10 +101,11 @@ export class TransactionLogController {
   @UseGuards(JwtAuthGuard)
   @Post(':orderNumber/settle')
   settleTransaction(
+    @CurrentUser() user: UserEntity,
     @Param('orderNumber') orderNumber: string,
     @Body() dto: SettleTransactionDto,
   ) {
-    return this.transactionLogService.settleTransaction(orderNumber, dto.exitPrice);
+    return this.transactionLogService.settleTransaction(orderNumber, dto.exitPrice, user.id);
   }
 
   /**
@@ -105,8 +114,11 @@ export class TransactionLogController {
    */
   @UseGuards(JwtAuthGuard)
   @Post(':orderNumber/cancel')
-  cancelTransaction(@Param('orderNumber') orderNumber: string) {
-    return this.transactionLogService.cancelTransaction(orderNumber);
+  cancelTransaction(
+    @CurrentUser() user: UserEntity,
+    @Param('orderNumber') orderNumber: string,
+  ) {
+    return this.transactionLogService.cancelTransaction(orderNumber, user.id);
   }
 
   /**

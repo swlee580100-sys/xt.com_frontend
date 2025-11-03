@@ -3,8 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 
-import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import type { Role } from '../decorators/roles.decorator';
 
 @Injectable()
@@ -56,6 +56,31 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
       // 从数据库加载用户的真实信息（包括角色）
       try {
+        // 先尝试查找管理员
+        const admin = await this.prisma.admin.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            isActive: true
+          }
+        });
+
+        if (admin && admin.isActive) {
+          // 注入管理员信息到 request，角色为 admin
+          request.user = {
+            id: admin.id,
+            email: admin.email,
+            displayName: admin.displayName,
+            roles: ['admin'] as Role[],
+            isActive: admin.isActive
+          };
+
+          return true;
+        }
+
+        // 如果不是管理员，查找普通用户
         const user = await this.prisma.user.findUnique({
           where: { id: userId },
           select: {

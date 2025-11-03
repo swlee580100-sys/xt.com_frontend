@@ -1,4 +1,4 @@
-import { IsArray, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsOptional, IsString, MinLength, IsUrl } from 'class-validator';
 
 import type { Role } from '../../common/decorators/roles.decorator';
 
@@ -16,6 +16,11 @@ export class RegisterDto {
 
   @IsString()
   phoneNumber!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsUrl()
+  avatar?: string;
 
   @IsOptional()
   @IsArray()

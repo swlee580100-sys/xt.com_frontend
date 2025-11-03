@@ -8,6 +8,8 @@ export interface UserEntity {
   roles: Role[];
   isActive: boolean;
   lastLoginAt: Date | null;
+  lastLoginIp: string | null;  // 最后登录IP地址
+  avatar?: string | null;      // 用户头像 URL
   createdAt: Date;
   updatedAt: Date;
 
@@ -21,5 +23,5 @@ export interface UserEntity {
   totalProfitLoss: number;
   winRate: number;
   totalTrades: number;
-  verificationStatus: 'UNVERIFIED' | 'VERIFIED';
+  verificationStatus: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';
 }

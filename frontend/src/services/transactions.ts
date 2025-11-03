@@ -14,7 +14,7 @@ export const transactionService = {
     api: AxiosInstance,
     params: QueryTransactionsParams = {},
   ): Promise<PaginatedTransactionsResponse> => {
-    const response = await api.get('/transactions', { params });
+    const response = await api.get('/admin/transactions', { params });
     return response.data.data;
   },
 
@@ -57,4 +57,3 @@ export const transactionService = {
     return response.data.data;
   },
 };
-

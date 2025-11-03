@@ -13,7 +13,7 @@ export const Header = () => {
       {user && (
         <div className="flex items-center gap-3 text-sm">
           <span className="rounded bg-secondary px-2 py-1 text-secondary-foreground">
-            {user.roles.join(', ')}
+            {user.roles?.join(', ') || user.permissions?.join(', ') || '管理员'}
           </span>
           <Button
             variant="outline"

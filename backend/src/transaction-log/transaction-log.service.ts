@@ -3,13 +3,16 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Prisma, TransactionStatus, TradeDirection, AccountType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketDataService } from '../market-data/market-data.service';
+import { SettingsService } from '../settings/settings.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { QueryTransactionsDto } from './dto/query-transactions.dto';
+import { AdminQueryTransactionsDto } from './dto/admin-query-transactions.dto';
 import { TransactionResponseDto } from './dto/transaction-response.dto';
 import { generateOrderNumber } from '../common/utils/order-number.generator';
 
@@ -20,6 +23,7 @@ export class TransactionLogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly marketDataService: MarketDataService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   /**
@@ -65,10 +69,21 @@ export class TransactionLogService {
     // 计算点差（简化处理，实际应该从配置或市场数据获取）
     const spread = entryPrice * 0.0001; // 0.01% 点差
 
+    // 从系统设置获取托管模式状态
+    let isManaged = false;
+    try {
+      const managedModeSetting = await this.settingsService.getSetting('trading.managedMode');
+      isManaged = managedModeSetting.value === true || managedModeSetting.value === 'true';
+    } catch {
+      // 如果设置不存在，默认为 false
+      isManaged = false;
+    }
+
     // 创建交易记录
     const transaction = await this.prisma.transactionLog.create({
       data: {
         userId,
+        userName: user.displayName, // 添加用户名
         orderNumber,
         accountType,
         assetType: dto.assetType,
@@ -83,6 +98,7 @@ export class TransactionLogService {
         returnRate: dto.returnRate,
         actualReturn: 0, // 初始为 0，结算时计算
         status: TransactionStatus.PENDING,
+        isManaged, // 记录是否在托管状态下创建
       },
     });
 
@@ -195,11 +211,17 @@ export class TransactionLogService {
     }
   }
 
+  async getAdminTransactions(query: AdminQueryTransactionsDto) {
+    const { userId, ...filters } = query;
+    return this.getUserTransactions(userId ?? null, filters);
+  }
+
   /**
    * 根据订单号获取交易详情
    */
   async getTransactionByOrderNumber(
     orderNumber: string,
+    userId: string,
   ): Promise<TransactionResponseDto> {
     const transaction = await this.prisma.transactionLog.findUnique({
       where: { orderNumber },
@@ -207,6 +229,11 @@ export class TransactionLogService {
 
     if (!transaction) {
       throw new NotFoundException(`订单 ${orderNumber} 不存在`);
+    }
+
+    // 验证交易是否属于当前用户
+    if (transaction.userId !== userId) {
+      throw new ForbiddenException('无权访问该交易');
     }
 
     return this.mapToResponseDto(transaction);
@@ -228,9 +255,38 @@ export class TransactionLogService {
   }
 
   /**
-   * 结算交易
+   * 结算交易（用户手动结算，需要验证权限）
    */
   async settleTransaction(
+    orderNumber: string,
+    exitPrice: number,
+    userId: string,
+  ): Promise<TransactionResponseDto> {
+    const transaction = await this.prisma.transactionLog.findUnique({
+      where: { orderNumber },
+    });
+
+    if (!transaction) {
+      throw new NotFoundException(`订单 ${orderNumber} 不存在`);
+    }
+
+    // 验证交易是否属于当前用户
+    if (transaction.userId !== userId) {
+      throw new ForbiddenException('无权操作该交易');
+    }
+
+    if (transaction.status !== TransactionStatus.PENDING) {
+      throw new BadRequestException(`订单 ${orderNumber} 已经结算或取消`);
+    }
+
+    // 调用内部结算方法
+    return this.settleTransactionInternal(orderNumber, exitPrice);
+  }
+
+  /**
+   * 内部结算方法（不验证用户权限，用于系统自动结算）
+   */
+  private async settleTransactionInternal(
     orderNumber: string,
     exitPrice: number,
   ): Promise<TransactionResponseDto> {
@@ -245,9 +301,6 @@ export class TransactionLogService {
     if (transaction.status !== TransactionStatus.PENDING) {
       throw new BadRequestException(`订单 ${orderNumber} 已经结算或取消`);
     }
-
-    // 使用前端传入的出场价格
-    // const exitPrice = await this.getCurrentPrice(transaction.assetType); // 不再自动获取
 
     // 计算盈亏
     const isWin = this.calculateIsWin(
@@ -300,13 +353,21 @@ export class TransactionLogService {
   /**
    * 取消交易（只能取消未结算的）
    */
-  async cancelTransaction(orderNumber: string): Promise<TransactionResponseDto> {
+  async cancelTransaction(
+    orderNumber: string,
+    userId: string,
+  ): Promise<TransactionResponseDto> {
     const transaction = await this.prisma.transactionLog.findUnique({
       where: { orderNumber },
     });
 
     if (!transaction) {
       throw new NotFoundException(`订单 ${orderNumber} 不存在`);
+    }
+
+    // 验证交易是否属于当前用户
+    if (transaction.userId !== userId) {
+      throw new ForbiddenException('无权操作该交易');
     }
 
     if (transaction.status !== TransactionStatus.PENDING) {
@@ -371,7 +432,7 @@ export class TransactionLogService {
       try {
         // 获取当前市场价格作为出场价
         const exitPrice = await this.getCurrentPrice(transaction.assetType);
-        await this.settleTransaction(transaction.orderNumber, exitPrice);
+        await this.settleTransactionInternal(transaction.orderNumber, exitPrice);
         settledCount++;
       } catch (error) {
         this.logger.error(
@@ -542,6 +603,7 @@ export class TransactionLogService {
     return {
       id: transaction.id,
       userId: transaction.userId,
+      userName: transaction.userName,  // 添加用户名
       orderNumber: transaction.orderNumber,
       accountType: transaction.accountType,
       assetType: transaction.assetType,
@@ -560,6 +622,7 @@ export class TransactionLogService {
       createdAt: transaction.createdAt,
       updatedAt: transaction.updatedAt,
       settledAt: transaction.settledAt,
+      isManaged: transaction.isManaged ?? false,
     };
   }
 }

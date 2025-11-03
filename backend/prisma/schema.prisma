@@ -18,6 +18,7 @@ model Admin {
   permissions      Json?     // 权限列表，如 ["users:manage", "system:config"]
   isActive         Boolean   @default(true)
   lastLoginAt      DateTime?
+  lastLoginIp      String?   // 最后登录IP地址
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -35,12 +36,14 @@ model User {
   roles              Json?
   isActive           Boolean            @default(true)
   lastLoginAt        DateTime?
+  lastLoginIp        String?            // 最后登录IP地址
+  avatar             String?            // 用户头像 URL
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   accountBalance     Decimal            @default(10000) @db.Decimal(18, 8)
   totalProfitLoss    Decimal            @default(0) @db.Decimal(18, 8)
   totalTrades        Int                @default(0)
-  verificationStatus VerificationStatus @default(UNVERIFIED)
+  verificationStatus VerificationStatus @default(PENDING)
   winRate            Decimal            @default(0) @db.Decimal(5, 2)
   demoBalance        Decimal            @default(10000) @db.Decimal(18, 8)
   phoneNumber        String             @unique
@@ -110,6 +113,7 @@ model MarketSnapshot {
 model TransactionLog {
   id           String            @id @default(uuid())
   userId       String
+  userName     String?           // 用户名（冗余字段，方便查询）
   orderNumber  String            @unique
   assetType    String
   direction    TradeDirection
@@ -128,6 +132,7 @@ model TransactionLog {
   updatedAt    DateTime          @updatedAt
   settledAt    DateTime?
   accountType  AccountType       @default(DEMO)
+  isManaged    Boolean           @default(false) // 是否在托管状态下产生的交易
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
@@ -135,6 +140,53 @@ model TransactionLog {
   @@index([orderNumber])
   @@index([assetType, createdAt])
   @@index([entryTime, expiryTime])
+}
+
+model Testimonial {
+  id        String   @id @default(uuid())
+  name      String
+  title     String
+  rating    Int
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model CarouselItem {
+  id        String   @id @default(uuid())
+  sortOrder Int
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder])
+}
+
+model LeaderboardEntry {
+  id         String           @id @default(uuid())
+  type       LeaderboardType
+  avatar     String?
+  country    String
+  name       String
+  tradeCount Int
+  winRate    Decimal          @db.Decimal(5, 2)
+  volume     Decimal          @db.Decimal(18, 2)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@index([type, tradeCount])
+}
+
+model TradingPerformance {
+  id            String   @id @default(uuid())
+  tradeDuration Int
+  winRate       Decimal  @db.Decimal(5, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tradeDuration])
 }
 
 enum OrderSide {
@@ -157,8 +209,10 @@ enum OrderStatus {
 }
 
 enum VerificationStatus {
-  UNVERIFIED
-  VERIFIED
+  PENDING        // 待审核
+  IN_REVIEW      // 审核中
+  VERIFIED       // 验证成功
+  REJECTED       // 验证失败
 }
 
 enum TradeDirection {
@@ -175,4 +229,24 @@ enum TransactionStatus {
 enum AccountType {
   DEMO
   REAL
+}
+
+enum LeaderboardType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// 系统设置表
+model SystemSettings {
+  id          String   @id @default(uuid())
+  key         String   @unique // 设置键，如 "admin.username", "trading.channels", etc.
+  value       Json     // 设置值（JSON 格式）
+  category    String   // 分类：admin, trading, customer_service, latency, etc.
+  description String?  // 描述
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([key])
 }

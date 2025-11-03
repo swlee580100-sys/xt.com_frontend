@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEmail, IsBoolean, IsEnum, IsArray } from 'class-validator';
+import { IsOptional, IsString, IsEmail, IsBoolean, IsEnum, IsArray, IsUrl } from 'class-validator';
 
 export enum UserRole {
   ADMIN = 'admin',
@@ -7,8 +7,10 @@ export enum UserRole {
 }
 
 export enum VerificationStatus {
-  UNVERIFIED = 'UNVERIFIED',
-  VERIFIED = 'VERIFIED',
+  PENDING = 'PENDING',      // 待审核
+  IN_REVIEW = 'IN_REVIEW',  // 审核中
+  VERIFIED = 'VERIFIED',     // 验证成功
+  REJECTED = 'REJECTED',     // 验证失败
 }
 
 export class UpdateUserDto {
@@ -23,6 +25,11 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   phoneNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsUrl()
+  avatar?: string;
 
   @IsOptional()
   @IsBoolean()

@@ -11,8 +11,8 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6)
+  username: z.string().min(1, '请输入用户名'),
+  password: z.string().min(6, '密码至少6位')
 });
 
 type LoginValues = z.infer<typeof loginSchema>;
@@ -28,7 +28,7 @@ export const LoginPage = () => {
     formState: { errors }
   } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: '' }
+    defaultValues: { username: '', password: '' }
   });
 
   // Redirect to home when authenticated
@@ -41,10 +41,10 @@ export const LoginPage = () => {
   const onSubmit = handleSubmit(async values => {
     try {
       setError(null);
-      await login(values.email, values.password);
+      await login(values.username, values.password);
       // Navigation will happen via the useEffect above when isAuthenticated changes
     } catch (err) {
-      setError('邮箱或密码错误');
+      setError('用户名或密码错误');
     }
   });
 
@@ -58,9 +58,9 @@ export const LoginPage = () => {
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="email">邮箱</Label>
-              <Input id="email" type="email" placeholder="you@example.com" {...register('email')} />
-              {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+              <Label htmlFor="username">用户名</Label>
+              <Input id="username" type="text" placeholder="admin" {...register('username')} />
+              {errors.username && <p className="text-sm text-destructive">{errors.username.message}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">密码</Label>

@@ -3,6 +3,7 @@ export class UserResponseDto {
   email: string;
   displayName: string;
   phoneNumber: string;
+  avatar?: string;
   roles: string[];
   isActive: boolean;
   verificationStatus: string;
@@ -20,6 +21,7 @@ export class UserResponseDto {
     this.email = user.email;
     this.displayName = user.displayName;
     this.phoneNumber = user.phoneNumber;
+    this.avatar = user.avatar;
     this.roles = user.roles || [];
     this.isActive = user.isActive;
     this.verificationStatus = user.verificationStatus;

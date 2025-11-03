@@ -41,6 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { EditUserDialog } from '@/components/users/edit-user-dialog';
 
 export const UsersPage = () => {
   const { api } = useAuth();
@@ -52,6 +53,8 @@ export const UsersPage = () => {
   const [search, setSearch] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [userToEdit, setUserToEdit] = useState<User | null>(null);
 
   // Query params
   const queryParams: QueryUsersParams = {
@@ -136,6 +139,25 @@ export const UsersPage = () => {
       },
     },
     {
+      accessorKey: 'verificationStatus',
+      header: '身份验证',
+      cell: ({ row }) => {
+        const status = row.getValue('verificationStatus') as string;
+        const statusConfig = {
+          PENDING: { label: '待审核', variant: 'secondary' as const },
+          IN_REVIEW: { label: '审核中', variant: 'default' as const },
+          VERIFIED: { label: '验证成功', variant: 'success' as const },
+          REJECTED: { label: '验证失败', variant: 'destructive' as const },
+        };
+        const config = statusConfig[status as keyof typeof statusConfig] || { label: status, variant: 'secondary' as const };
+        return (
+          <Badge variant={config.variant}>
+            {config.label}
+          </Badge>
+        );
+      },
+    },
+    {
       accessorKey: 'demoBalance',
       header: '模拟余额',
       cell: ({ row }) => {
@@ -160,6 +182,14 @@ export const UsersPage = () => {
       },
     },
     {
+      accessorKey: 'lastLoginIp',
+      header: '登录IP',
+      cell: ({ row }) => {
+        const ip = row.getValue('lastLoginIp') as string | null;
+        return <div className="font-mono text-sm">{ip || '-'}</div>;
+      },
+    },
+    {
       id: 'actions',
       cell: ({ row }) => {
         const user = row.original;
@@ -178,7 +208,10 @@ export const UsersPage = () => {
                 复制用户 ID
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                setUserToEdit(user);
+                setEditDialogOpen(true);
+              }}>
                 <Pencil className="mr-2 h-4 w-4" />
                 编辑
               </DropdownMenuItem>
@@ -376,6 +409,13 @@ export const UsersPage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit User Dialog */}
+      <EditUserDialog
+        user={userToEdit}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+      />
     </>
   );
 };

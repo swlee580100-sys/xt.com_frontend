@@ -60,6 +60,7 @@ export class AuthService {
         displayName: payload.displayName,
         phoneNumber: payload.phoneNumber || `temp_${Date.now()}`,  // 如果没提供，生成临时手机号
         passwordHash,
+        avatar: payload.avatar,  // 保存头像 URL
         roles: payload.roles ?? ['trader']
       }
     });
@@ -85,10 +86,13 @@ export class AuthService {
     return this.sanitizeUser(user);
   }
 
-  async login(user: UserEntity): Promise<{ user: UserEntity; tokens: AuthTokens }> {
+  async login(user: UserEntity, ip?: string): Promise<{ user: UserEntity; tokens: AuthTokens }> {
     const dbUser = await this.prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() }
+      data: {
+        lastLoginAt: new Date(),
+        lastLoginIp: ip || null
+      }
     });
     const tokens = await this.generateAndPersistTokens(dbUser);
     return {
@@ -128,12 +132,14 @@ export class AuthService {
     });
   }
 
+
   private sanitizeUser(user: User): UserEntity {
     const { passwordHash, refreshTokenHash, roles, ...safeUser } = user;
     return {
       ...safeUser,
       roles: this.normalizeRoles(roles),
       lastLoginAt: safeUser.lastLoginAt ?? null,
+      lastLoginIp: safeUser.lastLoginIp ?? null,
       phoneNumber: safeUser.phoneNumber,
       accountBalance: Number(safeUser.accountBalance),
       demoBalance: Number(safeUser.demoBalance),

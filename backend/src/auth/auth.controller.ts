@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Request, UseGuards, Ip } from '@nestjs/common';
 
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -22,8 +22,8 @@ export class AuthController {
   @Public()
   @UseGuards(LocalAuthGuard)
   @Post('login')
-  async login(@Request() req: { user: UserEntity }) {
-    return this.authService.login(req.user);
+  async login(@Request() req: { user: UserEntity }, @Ip() ip: string) {
+    return this.authService.login(req.user, ip);
   }
 
   @Public()
@@ -44,4 +44,5 @@ export class AuthController {
     await this.authService.revokeTokens(user.id);
     return { success: true };
   }
+
 }

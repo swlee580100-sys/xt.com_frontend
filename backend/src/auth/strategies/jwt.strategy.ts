@@ -40,6 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         roles: ['admin'] as Role[],
         isActive: admin.isActive,
         lastLoginAt: admin.lastLoginAt ?? null,
+        lastLoginIp: admin.lastLoginIp ?? null,
         createdAt: admin.createdAt,
         updatedAt: admin.updatedAt,
         phoneNumber: null,
@@ -71,6 +72,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ...safeUser,
       roles: this.normalizeRoles(roles),
       lastLoginAt: safeUser.lastLoginAt ?? null,
+      lastLoginIp: safeUser.lastLoginIp ?? null,
       phoneNumber: safeUser.phoneNumber,
       // 转换 Decimal 类型为 number
       accountBalance: Number(safeUser.accountBalance),
@@ -79,7 +81,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       totalProfitLoss: Number(safeUser.totalProfitLoss),
       winRate: Number(safeUser.winRate),
       totalTrades: safeUser.totalTrades,
-      verificationStatus: safeUser.verificationStatus
+      verificationStatus: safeUser.verificationStatus,
     };
   }
 

@@ -3,6 +3,7 @@ import { TradeDirection, TransactionStatus, AccountType } from '@prisma/client';
 export class TransactionResponseDto {
   id!: string;
   userId!: string;
+  userName?: string;  // 用户名
   orderNumber!: string;
   accountType!: AccountType;
   assetType!: string;
@@ -21,4 +22,5 @@ export class TransactionResponseDto {
   createdAt!: Date;
   updatedAt!: Date;
   settledAt!: Date | null;
+  isManaged!: boolean; // 是否在托管状态下产生的交易
 }

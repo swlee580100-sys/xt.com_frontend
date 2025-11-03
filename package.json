@@ -2,7 +2,10 @@
   "name": "crypto-sim-monorepo",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["backend", "frontend"],
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
     "backend:dev": "npm --prefix backend run start:dev",
     "backend:build": "npm --prefix backend run build",
@@ -11,5 +14,8 @@
     "frontend:build": "npm --prefix frontend run build",
     "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
     "typecheck": "npm --prefix backend run build && npm --prefix frontend run typecheck"
+  },
+  "dependencies": {
+    "@radix-ui/react-select": "^2.2.6"
   }
 }
