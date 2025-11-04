@@ -1,10 +1,15 @@
-import { Body, Controller, Get, Post, Request, UseGuards, Ip } from '@nestjs/common';
+import { Body, Controller, Get, Post, Request, UseGuards, Ip, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { UploadIdCardDto, IdCardType } from './dto/upload-id-card.dto';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './local-auth.guard';
 import type { UserEntity } from './entities/user.entity';
@@ -43,6 +48,45 @@ export class AuthController {
   async logout(@CurrentUser() user: UserEntity) {
     await this.authService.revokeTokens(user.id);
     return { success: true };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('upload-id-card')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: './uploads/id-cards',
+      filename: (req, file, callback) => {
+        const uniqueName = `${uuidv4()}${extname(file.originalname)}`;
+        callback(null, uniqueName);
+      },
+    }),
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB
+    },
+    fileFilter: (req, file, callback) => {
+      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+        return callback(new Error('Only image files are allowed!'), false);
+      }
+      callback(null, true);
+    },
+  }))
+  async uploadIdCard(
+    @CurrentUser() user: UserEntity,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: UploadIdCardDto,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const fileUrl = `/uploads/id-cards/${file.filename}`;
+    const updatedUser = await this.authService.uploadIdCard(user.id, dto.type, fileUrl);
+
+    return {
+      message: 'ID card uploaded successfully',
+      user: updatedUser,
+      fileUrl,
+    };
   }
 
 }

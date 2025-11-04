@@ -42,23 +42,24 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    // 检查手机号是否已存在（如果提供了手机号）
-    if (payload.phoneNumber) {
-      const existingPhone = await this.prisma.user.findUnique({
-        where: { phoneNumber: payload.phoneNumber }
-      });
-
-      if (existingPhone) {
-        throw new ConflictException('Phone number already registered');
-      }
-    }
+    // 暂时注释掉手机号验证
+    // // 检查手机号是否已存在（如果提供了手机号）
+    // if (payload.phoneNumber) {
+    //   const existingPhone = await this.prisma.user.findUnique({
+    //     where: { phoneNumber: payload.phoneNumber }
+    //   });
+    //
+    //   if (existingPhone) {
+    //     throw new ConflictException('Phone number already registered');
+    //   }
+    // }
 
     const passwordHash = await this.hashValue(payload.password);
     const user = await this.prisma.user.create({
       data: {
         email: payload.email,
         displayName: payload.displayName,
-        phoneNumber: payload.phoneNumber || `temp_${Date.now()}`,  // 如果没提供，生成临时手机号
+        phoneNumber: `temp_${Date.now()}`,  // 暂时使用临时手机号
         passwordHash,
         avatar: payload.avatar,  // 保存头像 URL
         roles: payload.roles ?? ['trader']
@@ -132,6 +133,18 @@ export class AuthService {
     });
   }
 
+  async uploadIdCard(userId: string, type: 'front' | 'back', fileUrl: string): Promise<UserEntity> {
+    const updateData = type === 'front'
+      ? { idCardFront: fileUrl }
+      : { idCardBack: fileUrl };
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: updateData
+    });
+
+    return this.sanitizeUser(user);
+  }
 
   private sanitizeUser(user: User): UserEntity {
     const { passwordHash, refreshTokenHash, roles, ...safeUser } = user;
@@ -146,6 +159,8 @@ export class AuthService {
       realBalance: Number(safeUser.realBalance),
       totalProfitLoss: Number(safeUser.totalProfitLoss),
       winRate: Number(safeUser.winRate),
+      idCardFront: safeUser.idCardFront ?? null,
+      idCardBack: safeUser.idCardBack ?? null,
     } as UserEntity;
   }
 

@@ -28,4 +28,16 @@ export class CreateLeaderboardEntryDto {
   @IsNumber()
   @Min(0)
   volume!: number;
+
+  @IsNumber()
+  @Min(0)
+  totalVolume!: number;
+
+  @IsNumber()
+  @Min(0)
+  highestTrade!: number;
+
+  @IsNumber()
+  @Min(0)
+  lowestTrade!: number;
 }

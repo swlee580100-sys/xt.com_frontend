@@ -54,7 +54,12 @@
       "Bash(/tmp/test-verification-status.sh)",
       "Bash(/tmp/test_avatar.sh:*)",
       "Bash(/tmp/test_avatar_v2.sh)",
-      "Bash(/tmp/test_avatar_simple.sh)"
+      "Bash(/tmp/test_avatar_simple.sh)",
+      "Bash(python3:*)",
+      "Bash(node /tmp/create_mock_images.js:*)",
+      "Bash(/tmp/test_id_card_display.sh:*)",
+      "Bash(/tmp/test_transaction_query.sh:*)",
+      "Bash(/tmp/test_transaction_query_v2.sh)"
     ],
     "deny": [],
     "ask": []

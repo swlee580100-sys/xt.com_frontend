@@ -38,6 +38,8 @@ model User {
   lastLoginAt        DateTime?
   lastLoginIp        String?            // 最后登录IP地址
   avatar             String?            // 用户头像 URL
+  idCardFront        String?            // 身份证正面照片 URL
+  idCardBack         String?            // 身份证反面照片 URL
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   accountBalance     Decimal            @default(10000) @db.Decimal(18, 8)
@@ -165,24 +167,27 @@ model CarouselItem {
 }
 
 model LeaderboardEntry {
-  id         String           @id @default(uuid())
-  type       LeaderboardType
-  avatar     String?
-  country    String
-  name       String
-  tradeCount Int
-  winRate    Decimal          @db.Decimal(5, 2)
-  volume     Decimal          @db.Decimal(18, 2)
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  id           String           @id @default(uuid())
+  type         LeaderboardType
+  avatar       String?
+  country      String
+  name         String
+  tradeCount   Int
+  winRate      Decimal          @db.Decimal(5, 2)
+  volume       Decimal          @db.Decimal(18, 2)
+  totalVolume  Decimal          @default(0) @db.Decimal(18, 2) // 总交易金额
+  highestTrade Decimal          @default(0) @db.Decimal(18, 2) // 最高交易额
+  lowestTrade  Decimal          @default(0) @db.Decimal(18, 2) // 最低交易额
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
   @@index([type, tradeCount])
 }
 
 model TradingPerformance {
   id            String   @id @default(uuid())
-  tradeDuration Int
-  winRate       Decimal  @db.Decimal(5, 2)
+  tradeDuration Int      // 交易时长（秒）
+  winRate       Decimal  @db.Decimal(5, 2) // 利率（0-200）
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

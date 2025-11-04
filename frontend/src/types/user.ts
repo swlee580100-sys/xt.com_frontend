@@ -2,8 +2,10 @@ export interface User {
   id: string;
   email: string;
   displayName: string;
-  phoneNumber: string;
+  phoneNumber: string;  // 暂时不显示，但保留字段以备后用
   avatar?: string;
+  idCardFront?: string;  // 身份证正面照片 URL
+  idCardBack?: string;   // 身份证反面照片 URL
   roles: string[];
   isActive: boolean;
   verificationStatus: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';
@@ -40,7 +42,7 @@ export interface QueryUsersParams {
 export interface UpdateUserDto {
   email?: string;
   displayName?: string;
-  phoneNumber?: string;
+  phoneNumber?: string;  // 暂时不更新，但保留字段以备后用
   avatar?: string;
   isActive?: boolean;
   verificationStatus?: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';

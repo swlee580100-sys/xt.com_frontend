@@ -142,7 +142,16 @@ export class TransactionLogService {
     page: number;
     limit: number;
   }> {
-    const { page = 1, limit = 20, assetType, direction, status, accountType } = query;
+    const {
+      page = 1,
+      limit = 20,
+      assetType,
+      direction,
+      status,
+      accountType,
+      userName,
+      isManaged,
+    } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.TransactionLogWhereInput = {
@@ -151,6 +160,8 @@ export class TransactionLogService {
       ...(direction && { direction }),
       ...(status && { status }),
       ...(accountType && { accountType }),
+      ...(userName && { userName: { contains: userName, mode: 'insensitive' } }),
+      ...(typeof isManaged === 'boolean' && { isManaged }),
     };
 
     this.logger.log(`查询交易记录 - userId: ${userId || 'all'}, where: ${JSON.stringify(where)}, page: ${page}, limit: ${limit}`);
@@ -212,8 +223,50 @@ export class TransactionLogService {
   }
 
   async getAdminTransactions(query: AdminQueryTransactionsDto) {
-    const { userId, ...filters } = query;
-    return this.getUserTransactions(userId ?? null, filters);
+    const { userId, username, managedMode, ...filters } = query;
+
+    // 构建额外的查询条件
+    const where: Prisma.TransactionLogWhereInput = {
+      ...(userId && { userId }),
+      ...(username && { userName: { contains: username, mode: 'insensitive' } }),
+      ...(managedMode !== undefined && { isManaged: managedMode }),
+    };
+
+    // 如果有额外的查询条件，需要合并到基础查询中
+    if (Object.keys(where).length > 0) {
+      const { page = 1, limit = 20, assetType, direction, status, accountType } = filters;
+      const skip = (page - 1) * limit;
+
+      const combinedWhere: Prisma.TransactionLogWhereInput = {
+        ...where,
+        ...(assetType && { assetType }),
+        ...(direction && { direction }),
+        ...(status && { status }),
+        ...(accountType && { accountType }),
+      };
+
+      this.logger.log(`管理员查询交易记录 - where: ${JSON.stringify(combinedWhere)}, page: ${page}, limit: ${limit}`);
+
+      const [transactions, total] = await Promise.all([
+        this.prisma.transactionLog.findMany({
+          where: combinedWhere,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.transactionLog.count({ where: combinedWhere }),
+      ]);
+
+      return {
+        data: transactions.map((t) => this.mapToResponseDto(t)),
+        total,
+        page,
+        limit,
+      };
+    }
+
+    // 没有额外查询条件，使用原有逻辑
+    return this.getUserTransactions(null, filters);
   }
 
   /**

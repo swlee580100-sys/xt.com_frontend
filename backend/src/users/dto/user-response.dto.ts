@@ -2,8 +2,10 @@ export class UserResponseDto {
   id: string;
   email: string;
   displayName: string;
-  phoneNumber: string;
+  phoneNumber: string;  // 暂时不在前端显示，但保留字段以备后用
   avatar?: string;
+  idCardFront?: string;
+  idCardBack?: string;
   roles: string[];
   isActive: boolean;
   verificationStatus: string;
@@ -22,6 +24,8 @@ export class UserResponseDto {
     this.displayName = user.displayName;
     this.phoneNumber = user.phoneNumber;
     this.avatar = user.avatar;
+    this.idCardFront = user.idCardFront;
+    this.idCardBack = user.idCardBack;
     this.roles = user.roles || [];
     this.isActive = user.isActive;
     this.verificationStatus = user.verificationStatus;

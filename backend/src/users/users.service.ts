@@ -69,6 +69,9 @@ export class UsersService {
           email: true,
           displayName: true,
           phoneNumber: true,
+          avatar: true,
+          idCardFront: true,
+          idCardBack: true,
           roles: true,
           isActive: true,
           verificationStatus: true,
@@ -97,6 +100,9 @@ export class UsersService {
         email: true,
         displayName: true,
         phoneNumber: true,
+        avatar: true,
+        idCardFront: true,
+        idCardBack: true,
         roles: true,
         isActive: true,
         verificationStatus: true,
@@ -140,16 +146,17 @@ export class UsersService {
       }
     }
 
-    // Check phone number uniqueness if updating phone
-    if (updateUserDto.phoneNumber && updateUserDto.phoneNumber !== existingUser.phoneNumber) {
-      const phoneExists = await this.prisma.user.findUnique({
-        where: { phoneNumber: updateUserDto.phoneNumber },
-      });
-
-      if (phoneExists) {
-        throw new ConflictException('Phone number already in use');
-      }
-    }
+    // 暂时注释掉手机号唯一性检查
+    // // Check phone number uniqueness if updating phone
+    // if (updateUserDto.phoneNumber && updateUserDto.phoneNumber !== existingUser.phoneNumber) {
+    //   const phoneExists = await this.prisma.user.findUnique({
+    //     where: { phoneNumber: updateUserDto.phoneNumber },
+    //   });
+    //
+    //   if (phoneExists) {
+    //     throw new ConflictException('Phone number already in use');
+    //   }
+    // }
 
     const updatedUser = await this.prisma.user.update({
       where: { id },
@@ -159,6 +166,9 @@ export class UsersService {
         email: true,
         displayName: true,
         phoneNumber: true,
+        avatar: true,
+        idCardFront: true,
+        idCardBack: true,
         roles: true,
         isActive: true,
         verificationStatus: true,
@@ -194,6 +204,9 @@ export class UsersService {
         email: true,
         displayName: true,
         phoneNumber: true,
+        avatar: true,
+        idCardFront: true,
+        idCardBack: true,
         roles: true,
         isActive: true,
         verificationStatus: true,
@@ -229,6 +242,9 @@ export class UsersService {
         email: true,
         displayName: true,
         phoneNumber: true,
+        avatar: true,
+        idCardFront: true,
+        idCardBack: true,
         roles: true,
         isActive: true,
         verificationStatus: true,
@@ -264,6 +280,9 @@ export class UsersService {
         email: true,
         displayName: true,
         phoneNumber: true,
+        avatar: true,
+        idCardFront: true,
+        idCardBack: true,
         roles: true,
         isActive: true,
         verificationStatus: true,
@@ -327,6 +346,9 @@ export class UsersService {
         email: true,
         displayName: true,
         phoneNumber: true,
+        avatar: true,
+        idCardFront: true,
+        idCardBack: true,
         roles: true,
         isActive: true,
         verificationStatus: true,

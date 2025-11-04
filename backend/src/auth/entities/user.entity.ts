@@ -10,6 +10,8 @@ export interface UserEntity {
   lastLoginAt: Date | null;
   lastLoginIp: string | null;  // 最后登录IP地址
   avatar?: string | null;      // 用户头像 URL
+  idCardFront?: string | null;  // 身份证正面照片 URL
+  idCardBack?: string | null;   // 身份证反面照片 URL
   createdAt: Date;
   updatedAt: Date;
 

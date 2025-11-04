@@ -125,9 +125,10 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
       newErrors.displayName = '显示名称不能为空';
     }
 
-    if (!formData.phoneNumber.trim()) {
-      newErrors.phoneNumber = '手机号不能为空';
-    }
+    // 暂时注释掉手机号验证
+    // if (!formData.phoneNumber.trim()) {
+    //   newErrors.phoneNumber = '手机号不能为空';
+    // }
 
     const demoBalance = parseFloat(formData.demoBalance);
     if (isNaN(demoBalance) || demoBalance < 0) {
@@ -162,7 +163,7 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>编辑用户</DialogTitle>
@@ -205,7 +206,8 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
               )}
             </div>
 
-            <div className="grid gap-2">
+            {/* 暂时注释掉手机号字段，以后可能会用到 */}
+            {/* <div className="grid gap-2">
               <Label htmlFor="phoneNumber">手机号 *</Label>
               <Input
                 id="phoneNumber"
@@ -216,7 +218,7 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
               {errors.phoneNumber && (
                 <span className="text-sm text-red-600">{errors.phoneNumber}</span>
               )}
-            </div>
+            </div> */}
 
             <div className="grid gap-2">
               <Label htmlFor="verificationStatus">身份验证状态</Label>
@@ -269,6 +271,36 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
                 )}
               </div>
             </div>
+
+            {/* 身份证信息 */}
+            {user && (
+              <div className="mt-4 pt-4 border-t">
+                <h4 className="font-medium text-sm mb-3">身份证信息</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* 正面 */}
+                  <div>
+                    <p className="text-sm text-gray-500 mb-2">身份证正面</p>
+                    <img
+                      src={user.idCardFront ? `http://localhost:3000${user.idCardFront}` : '/id-card-placeholder.svg'}
+                      alt="身份证正面"
+                      className={`w-full h-48 object-contain border rounded ${user.idCardFront ? 'cursor-pointer hover:opacity-80' : ''} transition-opacity`}
+                      onClick={() => user.idCardFront && window.open(`http://localhost:3000${user.idCardFront}`, '_blank')}
+                    />
+                  </div>
+
+                  {/* 反面 */}
+                  <div>
+                    <p className="text-sm text-gray-500 mb-2">身份证反面</p>
+                    <img
+                      src={user.idCardBack ? `http://localhost:3000${user.idCardBack}` : '/id-card-placeholder.svg'}
+                      alt="身份证反面"
+                      className={`w-full h-48 object-contain border rounded ${user.idCardBack ? 'cursor-pointer hover:opacity-80' : ''} transition-opacity`}
+                      onClick={() => user.idCardBack && window.open(`http://localhost:3000${user.idCardBack}`, '_blank')}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

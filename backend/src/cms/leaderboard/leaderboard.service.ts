@@ -43,7 +43,10 @@ export class LeaderboardService {
         name: dto.name,
         tradeCount: dto.tradeCount,
         winRate: new Prisma.Decimal(dto.winRate),
-        volume: new Prisma.Decimal(dto.volume)
+        volume: new Prisma.Decimal(dto.volume),
+        totalVolume: new Prisma.Decimal(dto.totalVolume),
+        highestTrade: new Prisma.Decimal(dto.highestTrade),
+        lowestTrade: new Prisma.Decimal(dto.lowestTrade)
       }
     });
 
@@ -57,7 +60,10 @@ export class LeaderboardService {
         data: {
           ...dto,
           winRate: dto.winRate !== undefined ? new Prisma.Decimal(dto.winRate) : undefined,
-          volume: dto.volume !== undefined ? new Prisma.Decimal(dto.volume) : undefined
+          volume: dto.volume !== undefined ? new Prisma.Decimal(dto.volume) : undefined,
+          totalVolume: dto.totalVolume !== undefined ? new Prisma.Decimal(dto.totalVolume) : undefined,
+          highestTrade: dto.highestTrade !== undefined ? new Prisma.Decimal(dto.highestTrade) : undefined,
+          lowestTrade: dto.lowestTrade !== undefined ? new Prisma.Decimal(dto.lowestTrade) : undefined
         }
       });
 

@@ -1,0 +1,12 @@
+<svg width="600" height="380" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="380" fill="#f0f0f0"/>
+  <rect x="10" y="10" width="580" height="360" fill="none" stroke="#4a5568" stroke-width="3"/>
+  <rect x="20" y="30" width="560" height="30" fill="#e53e3e"/>
+  <text x="300" y="85" font-family="Arial" font-size="24" fill="#2d3748" text-anchor="middle">中华人民共和国居民身份证</text>
+  <text x="50" y="150" font-family="Arial" font-size="36" fill="#1a202c">身份证反面</text>
+  <text x="50" y="200" font-family="Arial" font-size="24" fill="#4a5568">测试图片</text>
+  <rect x="50" y="220" width="500" height="60" fill="none" stroke="#cbd5e0" stroke-width="2"/>
+  <text x="70" y="255" font-family="Arial" font-size="16" fill="#4a5568">签发机关：XX市公安局</text>
+  <text x="70" y="290" font-family="Arial" font-size="16" fill="#4a5568">有效期限：2020.01.01-2030.01.01</text>
+  <text x="300" y="350" font-family="Arial" font-size="14" fill="#718096" text-anchor="middle">MOCK IMAGE FOR TESTING ONLY</text>
+</svg>

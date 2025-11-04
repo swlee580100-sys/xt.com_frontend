@@ -13,7 +13,7 @@ export class AdminAuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  async login(loginDto: AdminLoginDto) {
+  async login(loginDto: AdminLoginDto, ip?: string) {
     const { username, password } = loginDto;
 
     // 查找管理员
@@ -53,13 +53,14 @@ export class AdminAuthService {
       expiresIn: this.configService.get<string>('auth.jwt.refreshTokenTtl'),
     });
 
-    // 保存 refresh token hash
+    // 保存 refresh token hash 和登录信息
     const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
     await this.prisma.admin.update({
       where: { id: admin.id },
       data: {
         refreshTokenHash,
         lastLoginAt: new Date(),
+        lastLoginIp: ip || null, // 记录管理员登录 IP
       },
     });
 

@@ -65,6 +65,8 @@ export const TransactionsPage = () => {
     direction?: string;
     status?: string;
     accountType?: string;
+    username?: string;
+    managedMode?: boolean;
   }>({});
   
   const [settleDialogOpen, setSettleDialogOpen] = useState(false);
@@ -80,6 +82,8 @@ export const TransactionsPage = () => {
     direction: filters.direction as any,
     status: filters.status as any,
     accountType: filters.accountType as any,
+    username: filters.username || undefined,
+    managedMode: filters.managedMode,
   };
 
   // Fetch transactions
@@ -333,6 +337,13 @@ export const TransactionsPage = () => {
           <div className="mb-4 flex gap-2 flex-wrap">
             <Input
               type="text"
+              placeholder="用户名"
+              value={filters.username || ''}
+              onChange={(e) => setFilters({ ...filters, username: e.target.value || undefined })}
+              className="w-40"
+            />
+            <Input
+              type="text"
               placeholder="资产对 (如 BTC, ETH)"
               value={filters.assetType || ''}
               onChange={(e) => setFilters({ ...filters, assetType: e.target.value || undefined })}
@@ -366,7 +377,22 @@ export const TransactionsPage = () => {
               <option value="DEMO">模拟账户</option>
               <option value="REAL">真实账户</option>
             </select>
-            {(filters.assetType || filters.direction || filters.status || filters.accountType) && (
+            <select
+              value={filters.managedMode === undefined ? '' : filters.managedMode ? 'true' : 'false'}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFilters({
+                  ...filters,
+                  managedMode: value === '' ? undefined : value === 'true',
+                });
+              }}
+              className="px-3 py-2 border rounded-md w-32"
+            >
+              <option value="">全部托管</option>
+              <option value="true">托管</option>
+              <option value="false">非托管</option>
+            </select>
+            {(filters.assetType || filters.direction || filters.status || filters.accountType || filters.username || filters.managedMode !== undefined) && (
               <Button
                 variant="outline"
                 onClick={() => setFilters({})}

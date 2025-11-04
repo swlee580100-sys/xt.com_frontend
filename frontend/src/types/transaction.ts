@@ -41,9 +41,10 @@ export interface QueryTransactionsParams {
   direction?: TradeDirection;
   status?: TransactionStatus;
   accountType?: AccountType;
+  username?: string;
+  managedMode?: boolean;
 }
 
 export interface SettleTransactionDto {
   exitPrice: number;
 }
-

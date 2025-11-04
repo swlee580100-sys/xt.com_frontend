@@ -9,6 +9,9 @@ export class LeaderboardEntryResponseDto {
   tradeCount: number;
   winRate: number;
   volume: number;
+  totalVolume: number;
+  highestTrade: number;
+  lowestTrade: number;
   createdAt: Date;
   updatedAt: Date;
 
@@ -21,6 +24,9 @@ export class LeaderboardEntryResponseDto {
     tradeCount: number;
     winRate: any;
     volume: any;
+    totalVolume: any;
+    highestTrade: any;
+    lowestTrade: any;
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -32,6 +38,9 @@ export class LeaderboardEntryResponseDto {
     this.tradeCount = entry.tradeCount;
     this.winRate = Number(entry.winRate);
     this.volume = Number(entry.volume);
+    this.totalVolume = Number(entry.totalVolume);
+    this.highestTrade = Number(entry.highestTrade);
+    this.lowestTrade = Number(entry.lowestTrade);
     this.createdAt = entry.createdAt;
     this.updatedAt = entry.updatedAt;
   }

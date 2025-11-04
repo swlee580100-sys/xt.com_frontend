@@ -106,10 +106,11 @@ export const UsersPage = () => {
       accessorKey: 'displayName',
       header: '显示名称',
     },
-    {
-      accessorKey: 'phoneNumber',
-      header: '手机号',
-    },
+    // 暂时注释掉手机号列，以后可能会用到
+    // {
+    //   accessorKey: 'phoneNumber',
+    //   header: '手机号',
+    // },
     {
       accessorKey: 'roles',
       header: '角色',
