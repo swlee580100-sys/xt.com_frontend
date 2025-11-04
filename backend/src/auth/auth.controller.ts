@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import type { Request as ExpressRequest } from 'express';
 
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -74,12 +75,17 @@ export class AuthController {
     @CurrentUser() user: UserEntity,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadIdCardDto,
+    @Request() req: ExpressRequest,
   ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
 
-    const fileUrl = `/uploads/id-cards/${file.filename}`;
+    const protocolHeader = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0];
+    const protocol = protocolHeader || req.protocol || 'http';
+    const host = req.get('host') ?? 'localhost:3000';
+    const baseUrl = `${protocol}://${host}`;
+    const fileUrl = `${baseUrl}/uploads/id-cards/${file.filename}`;
     const updatedUser = await this.authService.uploadIdCard(user.id, dto.type, fileUrl);
 
     return {
