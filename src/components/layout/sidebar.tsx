@@ -17,7 +17,7 @@ export const Sidebar = () => {
   const { location } = useRouterState();
 
   return (
-    <aside className="hidden xs:flex w-16 md:w-56 flex-shrink-0 border-r bg-card flex-col fixed left-0 top-0 h-screen z-10 pt-6">
+    <aside className="hidden xs:flex w-16 md:w-56 flex-shrink-0 border-r bg-card flex-col fixed left-0 top-0 h-screen z-10 pt-4">
       {/* 標題：在小屏幕時隱藏，大屏幕時顯示 */}
       <div className="hidden md:block px-4 pb-4 text-lg font-semibold">CT-管理後台</div>
       <nav className="flex-1 space-y-1 px-2 overflow-y-auto">
@@ -29,7 +29,9 @@ export const Sidebar = () => {
               to={item.to}
               key={item.to}
               className={cn(
-                'flex items-center justify-center md:justify-start gap-2 rounded-md px-2 md:px-3 py-2 text-sm transition-colors',
+                'flex items-center justify-center md:justify-start gap-2 rounded md:rounded-md',
+                'w-12 h-12 md:w-auto md:h-auto',
+                'md:px-3 md:py-2 text-sm transition-colors',
                 isActive ? 'bg-black text-white' : 'text-muted-foreground hover:bg-accent'
               )}
               title={item.label}

@@ -111,10 +111,22 @@ export function useMultipleBinancePrices(
   const fetchPrices = useCallback(async () => {
     try {
       setError(null);
+      setLoading(true);
       const marketData = await binanceMarketService.getMultipleMarketData(symbols);
-      setData(marketData);
+      
+      // 如果沒有任何數據返回，設置錯誤
+      if (marketData.length === 0 && symbols.length > 0) {
+        setError(new Error('無法獲取任何交易對數據，請檢查交易對是否有效'));
+      } else {
+        setData(marketData);
+        // 如果有部分失敗，但不影響顯示成功的數據
+        if (marketData.length < symbols.length) {
+          console.warn(`部分交易對載入失敗: ${marketData.length}/${symbols.length} 成功`);
+        }
+      }
     } catch (err) {
       setError(err as Error);
+      setData(null);
     } finally {
       setLoading(false);
     }

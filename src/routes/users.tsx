@@ -303,7 +303,7 @@ export const UsersPage = () => {
             </div>
           ) : (
             <>
-              <div className="rounded-md border">
+              <div className="rounded-md border overflow-auto">
                 <Table>
                   <TableHeader>
                     {table.getHeaderGroups().map((headerGroup) => (
@@ -315,32 +315,32 @@ export const UsersPage = () => {
                               key={header.id}
                               style={meta?.minWidth ? { minWidth: meta.minWidth } : undefined}
                             >
-                              {header.isPlaceholder ? null : (
-                                <div
+                            {header.isPlaceholder ? null : (
+                              <div
                                   className={cn(
                                     'whitespace-nowrap',
-                                    header.column.getCanSort()
-                                      ? 'cursor-pointer select-none flex items-center gap-2'
-                                      : ''
+                                  header.column.getCanSort()
+                                    ? 'cursor-pointer select-none flex items-center gap-2'
+                                    : ''
                                   )}
-                                  onClick={header.column.getToggleSortingHandler()}
-                                >
-                                  {flexRender(
-                                    header.column.columnDef.header,
-                                    header.getContext(),
-                                  )}
-                                  {header.column.getCanSort() && (
+                                onClick={header.column.getToggleSortingHandler()}
+                              >
+                                {flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext(),
+                                )}
+                                {header.column.getCanSort() && (
                                     <span className="ml-2 flex-shrink-0">
-                                      {header.column.getIsSorted() === 'asc' ? (
-                                        <ChevronUp className="h-4 w-4" />
-                                      ) : header.column.getIsSorted() === 'desc' ? (
-                                        <ChevronDown className="h-4 w-4" />
-                                      ) : null}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                            </TableHead>
+                                    {header.column.getIsSorted() === 'asc' ? (
+                                      <ChevronUp className="h-4 w-4" />
+                                    ) : header.column.getIsSorted() === 'desc' ? (
+                                      <ChevronDown className="h-4 w-4" />
+                                    ) : null}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </TableHead>
                           );
                         })}
                       </TableRow>
@@ -357,8 +357,8 @@ export const UsersPage = () => {
                                 key={cell.id}
                                 style={meta?.minWidth ? { minWidth: meta.minWidth } : undefined}
                               >
-                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                              </TableCell>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableCell>
                             );
                           })}
                         </TableRow>

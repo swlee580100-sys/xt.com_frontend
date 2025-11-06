@@ -504,7 +504,7 @@ export const SettingsPage = () => {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">系統設置</h1>
         <p className="text-muted-foreground">管理系統配置和参数</p>
