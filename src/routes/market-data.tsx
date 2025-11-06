@@ -14,6 +14,7 @@ import { RefreshCw, Settings2 } from 'lucide-react';
 import { useMultipleBinancePrices } from '@/hooks/useBinancePrice';
 import { MarketDataCard } from '@/components/market/market-data-card';
 import { MarketDataTable } from '@/components/market/market-data-table';
+import { DataComparison } from '@/components/market/data-comparison';
 import {
   Dialog,
   DialogContent,
@@ -216,6 +217,7 @@ export const MarketDataPage = () => {
           <TabsList>
             <TabsTrigger value="grid">卡片視圖</TabsTrigger>
             <TabsTrigger value="table">表格視圖</TabsTrigger>
+            <TabsTrigger value="comparison">數據對照</TabsTrigger>
           </TabsList>
 
           <TabsContent value="grid" className="space-y-4">
@@ -224,6 +226,20 @@ export const MarketDataPage = () => {
                 <MarketDataCard key={item.symbol || `market-${index}`} data={item} />
               ))}
             </div>
+            {/* 说明信息 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">數據來源</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                <ul className="list-inside list-disc space-y-1">
+                  <li>數據來源: Binance API</li>
+                  <li>更新頻率: 根據設置自動刷新（支持 3秒/5秒/10秒）</li>
+                  <li>數據包含: 即時價格、24小時漲跌幅、最高/最低價、交易量</li>
+                  <li>注意: 顯示價格僅供參考，實際交易以交易所即時價格為準</li>
+                </ul>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="table" className="space-y-4">
@@ -238,24 +254,27 @@ export const MarketDataPage = () => {
                 <MarketDataTable data={data} />
               </CardContent>
             </Card>
+            {/* 说明信息 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">數據來源</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                <ul className="list-inside list-disc space-y-1">
+                  <li>數據來源: Binance API</li>
+                  <li>更新頻率: 根據設置自動刷新（支持 3秒/5秒/10秒）</li>
+                  <li>數據包含: 即時價格、24小時漲跌幅、最高/最低價、交易量</li>
+                  <li>注意: 顯示價格僅供參考，實際交易以交易所即時價格為準</li>
+                </ul>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="comparison" className="space-y-4">
+            <DataComparison />
           </TabsContent>
         </Tabs>
       )}
-
-      {/* 说明信息 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">數據來源</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          <ul className="list-inside list-disc space-y-1">
-            <li>數據來源: Binance API</li>
-            <li>更新頻率: 根據設置自動刷新（支持 3秒/5秒/10秒）</li>
-            <li>數據包含: 即時價格、24小時漲跌幅、最高/最低價、交易量</li>
-            <li>注意: 顯示價格僅供參考，實際交易以交易所即時價格為準</li>
-          </ul>
-        </CardContent>
-      </Card>
 
       {/* 交易對選擇對話框 */}
       <Dialog open={showPairSelector} onOpenChange={setShowPairSelector}>

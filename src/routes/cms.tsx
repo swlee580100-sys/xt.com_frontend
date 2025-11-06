@@ -48,8 +48,8 @@ const tabs = [
   },
   {
     value: 'trading-performance',
-    label: '交易時長/贏利率管理',
-    description: '維護不同交易時長對應的贏利率配置'
+    label: '交易時長/盈利率管理',
+    description: '維護不同交易時長對應的盈利率配置'
   }
 ] as const;
 
@@ -642,7 +642,7 @@ export const CmsPage = () => {
 
     const winRate = Number(performanceFormData.winRate);
     if (Number.isNaN(winRate) || winRate < 0 || winRate > 100) {
-      errors.winRate = '贏利率需在 0-100 之間';
+      errors.winRate = '盈利率需在 0-100 之間';
     }
 
     return errors;
@@ -948,7 +948,7 @@ export const CmsPage = () => {
     if (tradingPerformanceLoading) {
       return (
         <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-          正在載入交易時長与贏利率配置...
+          正在載入交易時長与盈利率配置...
         </div>
       );
     }
@@ -968,7 +968,7 @@ export const CmsPage = () => {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-40">交易時長 (秒)</TableHead>
-                <TableHead className="w-32">贏利率 (%)</TableHead>
+                <TableHead className="w-32">盈利率 (%)</TableHead>
                 <TableHead className="w-40">更新時間</TableHead>
                 <TableHead className="w-32 text-right">操作</TableHead>
               </TableRow>
@@ -1480,7 +1480,7 @@ export const CmsPage = () => {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="performance-winRate">贏利率 (%)</Label>
+                        <Label htmlFor="performance-winRate">盈利率 (%)</Label>
                         <Input
                           id="performance-winRate"
                           type="number"

@@ -45,6 +45,35 @@ export interface MarketData {
   lastUpdate: number;
 }
 
+/**
+ * Binance K 線數據響應類型
+ * 參考：https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
+ */
+export interface BinanceKline {
+  0: number;  // 開盤時間
+  1: string;  // 開盤價
+  2: string;  // 最高價
+  3: string;  // 最低價
+  4: string;  // 收盤價
+  5: string;  // 交易量
+  6: number;  // 收盤時間
+  7: string;  // 報價資產交易量
+  8: number;  // 交易筆數
+  9: string;  // 主動買入交易量
+  10: string; // 主動買入報價資產交易量
+  11: string; // 忽略
+}
+
+export interface HistoricalPriceData {
+  timestamp: number;  // 時間戳（毫秒）
+  price: number;      // 價格
+  open: number;       // 開盤價
+  high: number;       // 最高價
+  low: number;        // 最低價
+  close: number;      // 收盤價
+  volume: number;     // 交易量
+}
+
 export class BinanceMarketService {
   private cache = new Map<string, { data: MarketData; timestamp: number }>();
   private cacheDuration = 3000; // 3秒缓存
@@ -188,6 +217,87 @@ export class BinanceMarketService {
       return `${match[1]}/${match[2]}`;
     }
     return symbol;
+  }
+
+  /**
+   * 獲取 K 線數據（歷史數據）
+   * 直接調用 Binance API: GET /api/v3/klines
+   */
+  async getKlines(
+    symbol: string,
+    interval: string = '1m',
+    startTime?: number,
+    endTime?: number,
+    limit: number = 1000
+  ): Promise<HistoricalPriceData[]> {
+    try {
+      let url = `${BINANCE_API_BASE}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+      
+      if (startTime) {
+        url += `&startTime=${startTime}`;
+      }
+      if (endTime) {
+        url += `&endTime=${endTime}`;
+      }
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const errorMessage = `Binance API error for ${symbol} klines! status: ${response.status}, message: ${errorText}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      const data: BinanceKline[] = await response.json();
+      
+      return data.map((kline) => ({
+        timestamp: kline[0],
+        price: parseFloat(kline[4]), // 使用收盤價作為價格
+        open: parseFloat(kline[1]),
+        high: parseFloat(kline[2]),
+        low: parseFloat(kline[3]),
+        close: parseFloat(kline[4]),
+        volume: parseFloat(kline[5]),
+      }));
+    } catch (error) {
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        const networkError = new Error(`網絡錯誤: 無法連接到 Binance API (${symbol})。可能是 CORS 問題或網絡連接問題。`);
+        console.error(networkError.message, error);
+        throw networkError;
+      }
+      console.error(`獲取 ${symbol} K 線數據失敗:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 獲取指定時間點的價格數據（用於即時數據）
+   * 如果沒有精確匹配，返回最接近的數據
+   */
+  async getPriceAtTime(symbol: string, timestamp: number): Promise<HistoricalPriceData | null> {
+    try {
+      // 獲取包含該時間點的 K 線數據（使用 1 分鐘間隔）
+      const startTime = timestamp - 60000; // 前1分鐘
+      const endTime = timestamp + 60000;   // 後1分鐘
+      const klines = await this.getKlines(symbol, '1m', startTime, endTime, 3);
+      
+      if (klines.length === 0) {
+        return null;
+      }
+      
+      // 找到最接近的 K 線
+      const closest = klines.reduce((prev, curr) => {
+        return Math.abs(curr.timestamp - timestamp) < Math.abs(prev.timestamp - timestamp)
+          ? curr
+          : prev;
+      });
+      
+      return closest;
+    } catch (error) {
+      console.error(`獲取 ${symbol} 在時間 ${timestamp} 的價格失敗:`, error);
+      return null;
+    }
   }
 
   /**
