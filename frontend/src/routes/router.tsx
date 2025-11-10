@@ -15,10 +15,12 @@ import { LoginPage } from '@/routes/login';
 import { TransactionsPage } from '@/routes/transactions';
 import { MarketDataPage } from '@/routes/market-data';
 import { UsersPage } from '@/routes/users';
+import { UserDetailPage } from '@/routes/user-detail';
 import { OperatorsPage } from '@/routes/operators';
 import { OperatorDetailPage } from '@/routes/operator-detail';
 import { CmsPage } from '@/routes/cms';
 import { SettingsPage } from '@/routes/settings';
+import { CustomerServicePage } from '@/routes/customer-service';
 import { OpeningSettingsPage } from '@/routes/opening-settings';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -65,6 +67,12 @@ const usersRoute = createRoute({
   component: UsersPage
 });
 
+const userDetailRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: '/users/$userId',
+  component: UserDetailPage
+});
+
 const cmsRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/cms',
@@ -95,6 +103,12 @@ const settingsRoute = createRoute({
   component: SettingsPage
 });
 
+const customerServiceRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: '/customer-service',
+  component: CustomerServicePage
+});
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
@@ -111,9 +125,11 @@ const appRoutes = appLayoutRoute.addChildren([
   ordersRoute,
   marketDataRoute,
   usersRoute,
+  userDetailRoute,
   operatorsRoute,
   operatorDetailRoute,
   openingSettingsRoute,
+  customerServiceRoute,
   cmsRoute,
   settingsRoute
 ]);
