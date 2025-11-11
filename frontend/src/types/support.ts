@@ -9,17 +9,23 @@ export interface SupportMessage {
   attachmentName?: string;
 }
 
+export type SupportConversationStatus = 'PENDING' | 'IN_PROGRESS' | 'RESOLVED';
+
 export interface SupportConversation {
   id: string;
   userId: string;
   userName: string;
   lastMessageAt: string;
   unreadCount?: number;
+  status: SupportConversationStatus;
   messages: SupportMessage[];
 }
 
 export interface SupportReplyPayload {
   content: string;
-  attachment?: File | null;
+}
+
+export interface SupportConversationStatusPayload {
+  status: SupportConversationStatus;
 }
 

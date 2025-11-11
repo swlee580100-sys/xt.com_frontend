@@ -97,9 +97,7 @@ interface OpeningPlan {
   tradingPairs: TradingPair[];
   roundDuration: number; // seconds
   isActive: boolean;
-  initialRounds?: number;
   defaultResultMode: ResultFilterMode;
-  defaultSingleDirection?: 'BUY_UP' | 'BUY_DOWN';
 }
 
 interface OpeningRound {
@@ -112,7 +110,6 @@ interface OpeningRound {
   duration: number;
   winningDirection: 'BUY_UP' | 'BUY_DOWN';
   resultMode: ResultFilterMode;
-  singleDirection?: 'BUY_UP' | 'BUY_DOWN';
 }
 
 interface OpeningRoundTrade {
@@ -143,7 +140,8 @@ const formatDurationCountdown = (
   };
 };
 
-const INITIAL_BATCH_ROUNDS = 5;
+const DEFAULT_PLAN_ROUND_DURATION = 180;
+const MAX_UPCOMING_ROUNDS = 1;
 const ALLOWED_DURATIONS = [30, 60, 90, 120, 150, 180] as const;
 const WINNING_DIRECTION_LABEL: Record<'BUY_UP' | 'BUY_DOWN', string> = {
   BUY_UP: '買漲',
@@ -162,33 +160,40 @@ const WINNING_DIRECTION_META: Record<'BUY_UP' | 'BUY_DOWN', { label: string; ico
   },
 };
 
-type ResultFilterMode = 'ALL_PROFIT' | 'ALL_LOSS' | 'RANDOM' | 'SINGLE' | 'MANUAL';
+type ResultFilterMode = 'ALL_PROFIT' | 'ALL_LOSS' | 'RANDOM' | 'MANUAL';
 
 const RESULT_FILTER_LABEL: Record<ResultFilterMode, string> = {
   ALL_PROFIT: '全體用戶盈利',
   ALL_LOSS: '全體用戶虧損',
   RANDOM: '隨機分佈',
-  SINGLE: '設置買漲或買跌',
   MANUAL: '個別用戶設置',
 };
 
-const USER_NAME_POOL = [
-  '王小明',
-  '陳大文',
-  '李雅婷',
-  '林雨柔',
-  '張志豪',
-  '趙婉如',
-  '蔡博宇',
-  '吳婷婷',
-  '許建宏',
-  '劉宗憲',
-  '鄭羽晴',
-  '邱偉倫'
-] as const;
-
 const getOppositeDirection = (direction: 'BUY_UP' | 'BUY_DOWN'): 'BUY_UP' | 'BUY_DOWN' =>
   direction === 'BUY_UP' ? 'BUY_DOWN' : 'BUY_UP';
+
+const MOCK_USERS = Array.from({ length: 10 }).map((_, index) => ({
+  userId: `mock-user-${index + 1}`,
+  userName: `模擬用戶 ${index + 1}`,
+  isActive: index < 4,
+  latestTradeAt: new Date(Date.now() - index * 90_000).toISOString(),
+}));
+
+const MOCK_TRADES = Array.from({ length: 20 }).map((_, index) => {
+  const user = MOCK_USERS[index % MOCK_USERS.length];
+  const tradingPair = index % 2 === 0 ? 'BTC/USDT' : 'ETH/USDT';
+  return {
+    id: `mock-trade-${index + 1}`,
+    userId: user.userId,
+    userName: user.userName,
+    durationSeconds: 30 + (index % 4) * 30,
+    direction: index % 2 === 0 ? 'BUY_UP' : 'BUY_DOWN',
+    amount: 50 + (index % 5) * 25,
+    placedAt: new Date(Date.now() - index * 45_000).toISOString(),
+    isWinning: index % 3 === 0,
+    tradingPair,
+  };
+});
 
 const createMockRoundTrades = (
   round: OpeningRound,
@@ -213,7 +218,7 @@ const createMockRoundTrades = (
   const durationMs = (round.duration || 60) * 1000;
 
   for (let i = 0; i < count; i += 1) {
-    const userIndex = Math.floor(random() * USER_NAME_POOL.length);
+    const userIndex = Math.floor(random() * MOCK_USERS.length);
     let direction: 'BUY_UP' | 'BUY_DOWN';
     switch (mode) {
       case 'FOLLOW_WIN':
@@ -236,7 +241,7 @@ const createMockRoundTrades = (
       id: `${round.id}-trade-${i}`,
       roundId: round.id,
       userId: `user-${userIndex + 1}`,
-      userName: USER_NAME_POOL[userIndex],
+      userName: MOCK_USERS[userIndex].userName,
       direction,
       amount,
       placedAt
@@ -254,11 +259,8 @@ const applyPlanOutcomeToRound = (
   options: { forceReroll?: boolean } = {}
 ): { round: OpeningRound; trades: OpeningRoundTrade[] } => {
   const mode = round.resultMode ?? plan.defaultResultMode ?? 'RANDOM';
-  const singleDirection = round.singleDirection ?? plan.defaultSingleDirection ?? 'BUY_UP';
   let winningDirection: 'BUY_UP' | 'BUY_DOWN';
-  if (mode === 'SINGLE') {
-    winningDirection = singleDirection;
-  } else if (!round.winningDirection || options.forceReroll) {
+  if (!round.winningDirection || options.forceReroll) {
     winningDirection = Math.random() < 0.5 ? 'BUY_UP' : 'BUY_DOWN';
   } else {
     winningDirection = round.winningDirection;
@@ -275,10 +277,8 @@ const applyPlanOutcomeToRound = (
       ? 'FOLLOW_WIN'
       : mode === 'ALL_LOSS'
         ? 'OPPOSE_WIN'
-        : mode === 'SINGLE'
-          ? 'FOLLOW_WIN'
-          : mode === 'MANUAL'
-            ? 'RANDOM'
+        : mode === 'MANUAL'
+          ? 'RANDOM'
           : 'RANDOM',
     winningDirection
   );
@@ -332,13 +332,10 @@ interface PlanDialogState {
   editingPlan: OpeningPlan | null;
   selectedPairs: Set<TradingPair>;
   startTimeInput: string;
-  durationInput: string;
-  initialRoundsInput: string;
   isActive: boolean;
   nameInput: string;
   defaultResultMode: ResultFilterMode;
-  defaultSingleDirection: 'BUY_UP' | 'BUY_DOWN';
-  errors: Partial<Record<'name' | 'startTime' | 'tradingPairs' | 'duration' | 'initialRounds' | 'defaultSingleDirection', string>>;
+  errors: Partial<Record<'name' | 'startTime' | 'tradingPairs', string>>;
 }
 
 const createInitialDialogState = (plan?: OpeningPlan): PlanDialogState => {
@@ -348,12 +345,9 @@ const createInitialDialogState = (plan?: OpeningPlan): PlanDialogState => {
     editingPlan: plan ?? null,
     selectedPairs: new Set(plan ? plan.tradingPairs : ['BTC/USDT']),
     startTimeInput: plan ? formatIsoToTaipeiInput(plan.startTime) : baseTime,
-    durationInput: plan ? plan.roundDuration.toString() : '60',
-    initialRoundsInput: String(plan?.initialRounds ?? INITIAL_BATCH_ROUNDS),
     isActive: plan ? plan.isActive : false,
     nameInput: plan ? plan.name : '新開盤方案',
     defaultResultMode: plan?.defaultResultMode ?? 'RANDOM',
-    defaultSingleDirection: plan?.defaultSingleDirection ?? 'BUY_UP',
     errors: {},
   };
 };
@@ -364,8 +358,12 @@ export const OpeningSettingsPage = () => {
   const [openedRounds, setOpenedRounds] = useState<OpeningRound[]>([]);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(() => null);
-  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
+  const [userSearch, setUserSearch] = useState('');
+  const [tradeRows, setTradeRows] = useState(MOCK_TRADES);
+  const [tradeDurationFilter, setTradeDurationFilter] = useState<'ALL' | 30 | 60 | 90 | 120 | 150 | 180>('ALL');
+  const [selectedMiniRoundId, setSelectedMiniRoundId] = useState<string | null>(null);
   const [roundTrades, setRoundTrades] = useState<Record<string, OpeningRoundTrade[]>>({});
+  const [tradeWinRule, setTradeWinRule] = useState<'ALL_LOSE' | 'ALL_WIN' | 'MANUAL' | 'RANDOM'>('MANUAL');
   const roundCounterRef = useRef(1);
   const plansRef = useRef<OpeningPlan[]>(plans);
   const seededRef = useRef(false);
@@ -447,7 +445,7 @@ export const OpeningSettingsPage = () => {
             endTime: end.toISOString(),
             duration: plan.roundDuration,
             resultMode: plan.defaultResultMode,
-            singleDirection: plan.defaultSingleDirection,
+            winningDirection: Math.random() < 0.5 ? 'BUY_UP' : 'BUY_DOWN'
           };
           const { round: adjustedRound, trades } = applyPlanOutcomeToRound(
             baseRound,
@@ -504,69 +502,137 @@ export const OpeningSettingsPage = () => {
 
   useEffect(() => {
     if (selectedPlanRounds.length === 0) {
-      setSelectedRoundId(null);
+      setSelectedMiniRoundId(null);
       return;
     }
-    setSelectedRoundId(prev => {
-      if (prev && selectedPlanRounds.some(round => round.id === prev)) {
-        return prev;
+    setSelectedMiniRoundId(prev => {
+      if (!prev) {
+        return selectedPlanRounds[0]?.id ?? null;
       }
-      return selectedPlanRounds[0]?.id ?? null;
+      const exists = selectedPlanRounds.some(round => round.id === prev);
+      return exists ? prev : selectedPlanRounds[0]?.id ?? null;
     });
   }, [selectedPlanRounds]);
 
-  const selectedRound = useMemo(() => {
-    if (!selectedPlanRounds.length) return null;
-    if (selectedRoundId) {
-      const matched = selectedPlanRounds.find(round => round.id === selectedRoundId);
-      if (matched) return matched;
-    }
-    return selectedPlanRounds[0] ?? null;
-  }, [selectedPlanRounds, selectedRoundId]);
+  const filteredUsers = useMemo(() => {
+    const keyword = userSearch.trim().toLowerCase();
+    if (!keyword) return MOCK_USERS;
+    return MOCK_USERS.filter(user =>
+      user.userName.toLowerCase().includes(keyword) ||
+      user.userId.toLowerCase().includes(keyword)
+    );
+  }, [userSearch]);
 
-  useEffect(() => {
-    if (!selectedRound) return;
-    const plan =
-      plansRef.current.find(planItem => planItem.id === selectedRound.planId) ??
-      plans.find(planItem => planItem.id === selectedRound.planId);
-    if (!plan) return;
+  const activeUserCount = useMemo(() => filteredUsers.filter(user => user.isActive).length, [filteredUsers]);
+  const inactiveUserCount = useMemo(() => filteredUsers.length - activeUserCount, [filteredUsers, activeUserCount]);
 
-    const existingTrades = roundTrades[selectedRound.id];
-    const roundMode = selectedRound.resultMode ?? plan.defaultResultMode ?? 'RANDOM';
-    const desiredWinDirection =
-      selectedRound.singleDirection ??
-      plan.defaultSingleDirection ??
-      'BUY_UP';
-    const shouldAlignWinning =
-      roundMode === 'SINGLE' &&
-      selectedRound.winningDirection !== desiredWinDirection;
-
-    if (!existingTrades || shouldAlignWinning) {
-      const { round: adjustedRound, trades } = applyPlanOutcomeToRound(
-        shouldAlignWinning
-          ? { ...selectedRound, winningDirection: desiredWinDirection }
-          : selectedRound,
-        plan,
-        { forceReroll: !existingTrades && roundMode === 'RANDOM' }
-      );
-
-      if (shouldAlignWinning) {
-        setOpenedRounds(prev =>
-          prev.map(item => (item.id === adjustedRound.id ? adjustedRound : item))
-        );
+  const filteredTradeRows = useMemo(() => {
+    const visibleUserIds = new Set(filteredUsers.map(user => user.userId));
+    return tradeRows.filter(row => {
+      if (!visibleUserIds.has(row.userId)) {
+        return false;
       }
+      if (tradeDurationFilter === 'ALL') {
+        return true;
+      }
+      return row.durationSeconds === tradeDurationFilter;
+    });
+  }, [filteredUsers, tradeRows, tradeDurationFilter]);
 
-      setRoundTrades(prev => ({
-        ...prev,
-        [adjustedRound.id]: trades,
-      }));
+  const selectedMiniRoundLabel = useMemo(() => {
+    if (selectedPlanRounds.length === 0) {
+      return '';
     }
-  }, [plans, roundTrades, selectedRound]);
+    const activeRoundId = selectedMiniRoundId ?? selectedPlanRounds[0].id;
+    const index = selectedPlanRounds.findIndex(round => round.id === activeRoundId);
+    if (index === -1) {
+      return '';
+    }
+    return `A${String(index + 1).padStart(2, '0')}`;
+  }, [selectedMiniRoundId, selectedPlanRounds]);
 
-  const selectedRoundTrades = useMemo(() => {
-    if (!selectedRound) return [];
-    return roundTrades[selectedRound.id] ?? [];
-  }, [roundTrades, selectedRound]);
+  const selectedMiniRound = useMemo(() => {
+    if (selectedPlanRounds.length === 0) {
+      return null;
+    }
+    const activeRoundId = selectedMiniRoundId ?? selectedPlanRounds[0].id;
+    return selectedPlanRounds.find(round => round.id === activeRoundId) ?? selectedPlanRounds[0];
+  }, [selectedMiniRoundId, selectedPlanRounds]);
+
+  const selectedMiniRoundTiming = useMemo(() => {
+    if (!selectedMiniRound) {
+      return null;
+    }
+    const startDate = new Date(selectedMiniRound.startTime);
+    if (Number.isNaN(startDate.getTime())) {
+      return null;
+    }
+    const duration = selectedMiniRound.duration || DEFAULT_PLAN_ROUND_DURATION;
+    const endDate = new Date(startDate.getTime() + duration * 1000);
+    const elapsedSeconds = Math.max(0, Math.floor((currentTime - startDate.getTime()) / 1000));
+    const remainingSeconds = Math.max(duration - elapsedSeconds, 0);
+    const isEnded = currentTime >= endDate.getTime();
+
+    const formatLabel = (iso: string) => {
+      const parts = formatDateLabel(iso);
+      return `${parts.dateText} ${parts.timeText}`;
+    };
+
+    const formatCountdown = (seconds: number) => {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    };
+
+    return {
+      startText: formatLabel(startDate.toISOString()),
+      endText: formatLabel(endDate.toISOString()),
+      countdownText: isEnded ? '此盤已結束' : `倒數 ${formatCountdown(remainingSeconds)}`,
+    };
+  }, [currentTime, selectedMiniRound]);
+
+  const handleTradeWinRuleChange = useCallback((value: 'ALL_LOSE' | 'ALL_WIN' | 'MANUAL' | 'RANDOM') => {
+    setTradeWinRule(value);
+    if (value === 'MANUAL') {
+      return;
+    }
+    setTradeRows(prev =>
+      prev.map(trade => ({
+        ...trade,
+        isWinning:
+          value === 'ALL_WIN'
+            ? true
+            : value === 'ALL_LOSE'
+              ? false
+              : Math.random() >= 0.5,
+      }))
+    );
+  }, []);
+
+  const handleToggleTradeResult = useCallback((tradeId: string, value: boolean) => {
+    setTradeRows(prev => prev.map(trade => (trade.id === tradeId ? { ...trade, isWinning: value } : trade)));
+    setTradeWinRule(prev => (prev === 'MANUAL' ? prev : 'MANUAL'));
+  }, []);
+
+  const roundMap = useMemo(() => {
+    const map = new Map<string, OpeningRound>();
+    openedRounds.forEach(round => {
+      map.set(round.id, round);
+    });
+    return map;
+  }, [openedRounds]);
+
+  const getRoundStatus = useCallback((round: OpeningRound) => {
+    const start = new Date(round.startTime).getTime();
+    const end = new Date(round.endTime).getTime();
+    if (currentTime < start) {
+      return '未開始';
+    }
+    if (currentTime >= end) {
+      return '已結束';
+    }
+    return '進行中';
+  }, [currentTime]);
 
   const updateRoundOutcomeSettings = useCallback(
     (
@@ -610,7 +676,6 @@ export const OpeningSettingsPage = () => {
         const winDirection =
           overrides.winningDirection ??
           mergedRound.winningDirection ??
-          plan.defaultSingleDirection ??
           'BUY_UP';
         const desiredDirection =
           overrides.resultMode === 'ALL_PROFIT'
@@ -653,28 +718,6 @@ export const OpeningSettingsPage = () => {
     [updateRoundOutcomeSettings]
   );
 
-  const selectedRoundMode = selectedRound
-    ? selectedRound.resultMode ?? (selectedPlan?.defaultResultMode ?? 'RANDOM')
-    : 'RANDOM';
-  const selectedRoundSingleDirection = selectedRound
-    ? selectedRound.singleDirection ?? (selectedPlan?.defaultSingleDirection ?? 'BUY_UP')
-    : 'BUY_UP';
-
-  const roundTradeSummary = useMemo(() => {
-    return selectedRoundTrades.reduce(
-      (acc, trade) => {
-        acc.totalAmount += trade.amount;
-        if (trade.direction === 'BUY_UP') {
-          acc.buyUp += 1;
-        } else {
-          acc.buyDown += 1;
-        }
-        return acc;
-      },
-      { totalAmount: 0, buyUp: 0, buyDown: 0 }
-    );
-  }, [selectedRoundTrades]);
-
   const ensureContinuousRounds = useCallback(() => {
     const createdRounds: OpeningRound[] = [];
     const createdTrades: Record<string, OpeningRoundTrade[]> = {};
@@ -710,7 +753,6 @@ export const OpeningSettingsPage = () => {
               duration: plan.roundDuration,
               winningDirection: Math.random() < 0.5 ? 'BUY_UP' : 'BUY_DOWN',
               resultMode: plan.defaultResultMode,
-              singleDirection: plan.defaultSingleDirection,
             };
             const { round: adjustedRound, trades } = applyPlanOutcomeToRound(newRound, plan, {
               forceReroll: true,
@@ -744,7 +786,7 @@ export const OpeningSettingsPage = () => {
             round => new Date(round.startTime).getTime() >= currentTime
           ).length;
 
-          const desiredUpcoming = plan.initialRounds ?? INITIAL_BATCH_ROUNDS;
+          const desiredUpcoming = plan.isActive ? MAX_UPCOMING_ROUNDS : 0;
           while (upcomingCount < desiredUpcoming) {
             const startMs = Math.max(latestEndMs, currentTime);
             const nextEnd = addRound(startMs);
@@ -792,16 +834,14 @@ export const OpeningSettingsPage = () => {
       name: '大小盤功能測試',
       startTime: now.iso,
       tradingPairs: ['BTC/USDT', 'ETH/USDT'],
-      roundDuration: 60,
+      roundDuration: DEFAULT_PLAN_ROUND_DURATION,
       isActive: true,
-      initialRounds: 5,
-      defaultResultMode: 'RANDOM',
-      singleDirection: 'BUY_UP'
+      defaultResultMode: 'RANDOM'
     };
     setPlans([samplePlan]);
     setSelectedPlanId(samplePlan.id);
     seededRef.current = true;
-    generateRoundsForPlan(samplePlan, samplePlan.initialRounds ?? INITIAL_BATCH_ROUNDS);
+    generateRoundsForPlan(samplePlan, MAX_UPCOMING_ROUNDS);
   }, [generateRoundsForPlan]);
 
   const openCreateDialog = () => {
@@ -836,7 +876,7 @@ export const OpeningSettingsPage = () => {
     setPlans(prev => prev.map(plan => (plan.id === planId ? updatedPlan : plan)));
 
     if (value) {
-      generateRoundsForPlan(updatedPlan, updatedPlan.initialRounds ?? INITIAL_BATCH_ROUNDS);
+      generateRoundsForPlan(updatedPlan, MAX_UPCOMING_ROUNDS);
     }
   };
 
@@ -852,37 +892,22 @@ export const OpeningSettingsPage = () => {
       });
       return next;
     });
-    setSelectedRoundId(prev =>
-      prev && prev.startsWith(`${planId}-`) ? null : prev
-    );
   };
-
-  const handleRoundRowClick = useCallback((round: OpeningRound) => {
-    setSelectedRoundId(round.id);
-  }, []);
 
   const handleRoundResultModeChange = useCallback(
     (round: OpeningRound, mode: ResultFilterMode) => {
-      const plan = plansRef.current.find(planItem => planItem.id === round.planId);
-      const singleDirection =
-        mode === 'SINGLE'
-          ? round.singleDirection ??
-            plan?.defaultSingleDirection ??
-            'BUY_UP'
-          : round.singleDirection;
       updateRoundOutcomeSettings(
         round,
         {
           resultMode: mode,
-          singleDirection: mode === 'SINGLE' ? singleDirection : undefined,
         },
         { forceReroll: mode !== 'MANUAL' }
       );
       if (mode === 'ALL_PROFIT' || mode === 'ALL_LOSS') {
         const desiredDirection =
           mode === 'ALL_PROFIT'
-            ? round.winningDirection ?? plan?.defaultSingleDirection ?? 'BUY_UP'
-            : getOppositeDirection(round.winningDirection ?? plan?.defaultSingleDirection ?? 'BUY_UP');
+            ? round.winningDirection ?? 'BUY_UP'
+            : getOppositeDirection(round.winningDirection ?? 'BUY_UP');
         setRoundTrades(prev => {
           const trades = prev[round.id] ?? [];
           const updatedTrades = trades.map(entry => ({
@@ -899,30 +924,9 @@ export const OpeningSettingsPage = () => {
     [updateRoundOutcomeSettings]
   );
 
-  const handleRoundSingleDirectionChange = useCallback(
-    (round: OpeningRound, direction: 'BUY_UP' | 'BUY_DOWN') => {
-      updateRoundOutcomeSettings(
-        round,
-        {
-          singleDirection: direction,
-        },
-        { forceReroll: true }
-      );
-    },
-    [updateRoundOutcomeSettings]
-  );
-
   const handleSavePlan = () => {
     const errors: PlanDialogState['errors'] = {};
-    const {
-      nameInput,
-      startTimeInput,
-      durationInput,
-      initialRoundsInput,
-      selectedPairs,
-      defaultResultMode,
-      defaultSingleDirection
-    } = dialogState;
+    const { nameInput, startTimeInput, selectedPairs, defaultResultMode } = dialogState;
 
     if (!nameInput.trim()) {
       errors.name = '請輸入方案名稱';
@@ -932,17 +936,6 @@ export const OpeningSettingsPage = () => {
     }
     if (selectedPairs.size === 0) {
       errors.tradingPairs = '至少選擇一個交易對';
-    }
-    const durationValue = parseInt(durationInput, 10);
-    if (!ALLOWED_DURATIONS.includes(durationValue as typeof ALLOWED_DURATIONS[number])) {
-      errors.duration = '請輸入正確的每盤時間';
-    }
-    const initialRoundsValue = parseInt(initialRoundsInput, 10);
-    if (Number.isNaN(initialRoundsValue) || initialRoundsValue <= 0) {
-      errors.initialRounds = '請輸入有效的初始小盤數';
-    }
-    if (defaultResultMode === 'SINGLE' && !defaultSingleDirection) {
-      errors.defaultSingleDirection = '請選擇單一勝出方向';
     }
 
     if (Object.keys(errors).length > 0) {
@@ -955,11 +948,9 @@ export const OpeningSettingsPage = () => {
       name: nameInput.trim(),
       startTime: convertTaipeiInputToIso(startTimeInput),
       tradingPairs: Array.from(selectedPairs),
-      roundDuration: ALLOWED_DURATIONS.includes(durationValue as typeof ALLOWED_DURATIONS[number]) ? durationValue : 60,
+      roundDuration: dialogState.editingPlan?.roundDuration ?? DEFAULT_PLAN_ROUND_DURATION,
       isActive: dialogState.isActive,
-      initialRounds: initialRoundsValue,
       defaultResultMode,
-      defaultSingleDirection,
     };
 
     setPlans(prev => {
@@ -971,18 +962,6 @@ export const OpeningSettingsPage = () => {
 
     closeDialog();
   };
-
-  const getRoundStatus = useCallback((round: OpeningRound) => {
-    const start = new Date(round.startTime).getTime();
-    const end = new Date(round.endTime).getTime();
-    if (currentTime < start) {
-      return '未開始';
-    }
-    if (currentTime >= end) {
-      return '已結束';
-    }
-    return '進行中';
-  }, [currentTime]);
 
   const handleRoundDurationChange = useCallback((round: OpeningRound, rawValue: number, overrides?: Partial<OpeningRound>) => {
     const plan = plansRef.current.find(planItem => planItem.id === round.planId);
@@ -1133,19 +1112,12 @@ export const OpeningSettingsPage = () => {
       roundDialog.targetRound?.resultMode ??
       owningPlan?.defaultResultMode ??
       'RANDOM';
-    const effectiveSingleDirection =
-      effectiveResultMode === 'SINGLE'
-        ? roundDialog.targetRound?.singleDirection ??
-          owningPlan?.defaultSingleDirection ??
-          'BUY_UP'
-        : undefined;
 
     handleRoundDurationChange(roundDialog.targetRound, durationValue, {
       tradingPair: roundDialog.tradingPair as TradingPair,
       startTime: startIso,
       winningDirection: roundDialog.winningDirection as 'BUY_UP' | 'BUY_DOWN',
       resultMode: effectiveResultMode,
-      singleDirection: effectiveSingleDirection,
     });
     closeRoundDialog();
   };
@@ -1268,262 +1240,191 @@ export const OpeningSettingsPage = () => {
         <TabsContent value="details" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>選擇大盤</CardTitle>
-              <CardDescription>挑選欲檢視的大盤，查看其開盤細節與小盤生成狀況。</CardDescription>
+              <CardTitle>開盤篩選器</CardTitle>
+              <CardDescription>選擇要檢視的開盤並預覽其基本設定。</CardDescription>
             </CardHeader>
-            <CardContent>
-              {plans.length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">目前尚未建立開盤方案。</div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="plan-selector">大盤</Label>
-                    <Select
-                      value={selectedPlanId ?? ''}
-                      onValueChange={(value) => setSelectedPlanId(value || null)}
-                    >
-                      <SelectTrigger id="plan-selector">
-                        <SelectValue placeholder="選擇大盤" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {plans.map(plan => (
-                          <SelectItem key={plan.id} value={plan.id}>
-                            {plan.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {selectedPlan ? (
-                    <div className="grid gap-4 rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-                      <div className="grid gap-2 sm:grid-cols-2">
-                      <div>
-                        <span className="font-medium text-foreground">開始時間：</span>
-                        {formatDateLabel(selectedPlan.startTime).dateText}{' '}
-                        {formatDateLabel(selectedPlan.startTime).timeText}
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">每盤時間：</span>
-                        {selectedPlan.roundDuration} 秒
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="font-medium text-foreground">交易對：</span>
-                        {selectedPlan.tradingPairs.length > 0 ? selectedPlan.tradingPairs.join('、') : '尚未設定'}
-                      </div>
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <span className="font-medium text-foreground">預設輸贏策略：</span>
-                          {RESULT_FILTER_LABEL[selectedPlan.defaultResultMode] ?? RESULT_FILTER_LABEL.RANDOM}
-                        </div>
-                        {selectedPlan.defaultResultMode === 'SINGLE' ? (
-                          <div>
-                            <span className="font-medium text-foreground">預設勝出方向：</span>
-                            {WINNING_DIRECTION_LABEL[selectedPlan.defaultSingleDirection ?? 'BUY_UP']}
-                          </div>
-                        ) : (
-                          <div />
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-foreground">持續生成</p>
-                          <p className="text-xs text-muted-foreground">
-                            控制此大盤是否在小盤結束後自動新增下一盤。
-                          </p>
-                        </div>
-                        <Switch
-                          checked={selectedPlan.isActive}
-                          onCheckedChange={(value) => handleTogglePlan(selectedPlan.id, value)}
-                          aria-label="切換持續生成"
-                        />
-                      </div>
-                    </div>
-                  ) : null}
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="details-plan-select">開盤</Label>
+                  <Select
+                    value={selectedPlanId ?? ''}
+                    onValueChange={(value) => setSelectedPlanId(value || null)}
+                  >
+                    <SelectTrigger id="details-plan-select">
+                      <SelectValue placeholder="選擇開盤" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {plans.map(plan => (
+                        <SelectItem key={plan.id} value={plan.id}>
+                          {plan.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
+                <div className="space-y-2">
+                  <Label>開始時間</Label>
+                  <Input
+                    value={selectedPlan ? formatDateLabel(selectedPlan.startTime).dateText + ' ' + formatDateLabel(selectedPlan.startTime).timeText : ''}
+                    disabled
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>自動生成</Label>
+                  <div className="flex items-center justify-between rounded-md border px-4 py-3">
+                    <p className="text-xs text-muted-foreground">每一小盤結束是否再自動生成一個小盤</p>
+                    <Switch
+                      checked={selectedPlan?.isActive ?? false}
+                      onCheckedChange={value => selectedPlan && handleTogglePlan(selectedPlan.id, value)}
+                      disabled={!selectedPlan}
+                    />
+                  </div>
+                </div>
+              </div>
+              {selectedPlanRounds.length > 0 ? (
+                <div className="col-span-3">
+                  <Tabs value={selectedMiniRoundId ?? selectedPlanRounds[0].id} onValueChange={value => setSelectedMiniRoundId(value)}>
+                    <TabsList className="flex w-full overflow-x-auto justify-start">
+                      {selectedPlanRounds.map((round, index) => (
+                        <TabsTrigger key={round.id} value={round.id} className="whitespace-nowrap px-[8px] py-[4px] text-xs sm:text-sm">
+                          A{String(index + 1).padStart(2, '0')}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr),minmax(0,1fr)]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,0.3fr),minmax(0,0.7fr)]">
             <Card>
               <CardHeader>
-                <CardTitle>小盤資訊</CardTitle>
-                <CardDescription>顯示所選大盤內各小盤的時間、秒數與生成狀況。</CardDescription>
+                <CardTitle>用戶列表</CardTitle>
+                <CardDescription>顯示目前模擬的 10 位用戶資料。</CardDescription>
+                <p className="text-xs text-muted-foreground">
+                  目前顯示 {filteredUsers.length} 位用戶，其中進行中 {activeUserCount} 位，未進行 {inactiveUserCount} 位。
+                </p>
               </CardHeader>
-              <CardContent className="p-0">
-                {!selectedPlanId ? (
-                  <div className="py-16 text-center text-sm text-muted-foreground">請先選擇要檢視的大盤。</div>
-                ) : selectedPlanRounds.length === 0 ? (
-                  <div className="py-16 text-center text-sm text-muted-foreground">目前沒有可顯示的小盤資料。</div>
+              <CardContent className="space-y-3">
+                <Input
+                  placeholder="搜尋用戶名稱或 ID..."
+                  value={userSearch}
+                  onChange={event => setUserSearch(event.target.value)}
+                />
+                {filteredUsers.map(user => (
+                  <div key={user.userId} className="flex items-center justify-between rounded-md border px-3 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{user.userName}</p>
+                      <p className="text-xs text-muted-foreground">ID：{user.userId}</p>
+                      <p className="text-xs text-muted-foreground">
+                        最新成交：{formatDateLabel(user.latestTradeAt).dateText}{' '}
+                        {formatDateLabel(user.latestTradeAt).timeText}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {user.isActive ? <Badge variant="info">進行中</Badge> : <Badge variant="outline">未進行</Badge>}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card className="h-full">
+              <CardHeader>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle>{selectedMiniRoundLabel ? `${selectedMiniRoundLabel} 交易盤詳情` : '交易詳情'}</CardTitle>
+                    <CardDescription>可切換輸贏並檢視用戶的下注資訊。</CardDescription>
+                    {selectedMiniRoundTiming ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs sm:text-sm text-blue-600">
+                        <span>開始：{selectedMiniRoundTiming.startText}</span>
+                        <span>結束：{selectedMiniRoundTiming.endText}</span>
+                        <span>{selectedMiniRoundTiming.countdownText}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-muted-foreground">輸贏規則</span>
+                    <Select value={tradeWinRule} onValueChange={value => handleTradeWinRuleChange(value as 'ALL_LOSE' | 'ALL_WIN' | 'MANUAL' | 'RANDOM')}>
+                      <SelectTrigger className="w-[160px]">
+                        <SelectValue placeholder="選擇規則" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL_LOSE">全用戶輸</SelectItem>
+                        <SelectItem value="ALL_WIN">全用戶贏</SelectItem>
+                        <SelectItem value="MANUAL">個別設置</SelectItem>
+                        <SelectItem value="RANDOM">隨機</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Tabs value={String(tradeDurationFilter)} onValueChange={value => setTradeDurationFilter(value === 'ALL' ? 'ALL' : Number(value) as typeof tradeDurationFilter)}>
+                  <TabsList className="flex flex-wrap justify-start">
+                    {['ALL', 30, 60, 90, 120, 150, 180].map(option => (
+                      <TabsTrigger key={option} value={String(option)} className="text-xs sm:text-sm">
+                        {option === 'ALL' ? '全部' : `${option}s`}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+                {filteredTradeRows.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-muted-foreground">
+                    目前沒有符合條件的交易資料。
+                  </div>
                 ) : (
-                  <div className="overflow-auto" style={{ minHeight: 0 }}>
+                  <div className="overflow-auto rounded-md border">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="min-w-[100px]">盤號</TableHead>
-                          <TableHead className="min-w-[140px]">交易對</TableHead>
-                          <TableHead className="min-w-[150px]">開始時間</TableHead>
-                          <TableHead className="min-w-[150px]">結束時間</TableHead>
-                          <TableHead className="min-w-[140px]">每盤時間（秒）</TableHead>
-                        <TableHead className="min-w-[140px]">輸贏策略</TableHead>
-                        <TableHead className="min-w-[140px]">狀態</TableHead>
-                          <TableHead className="min-w-[140px]">勝出方向</TableHead>
-                          <TableHead className="min-w-[80px] text-right">操作</TableHead>
+                          <TableHead className="w-[120px]">輸 → 贏</TableHead>
+                          <TableHead className="w-[200px]">用戶／交易對</TableHead>
+                          <TableHead className="w-[120px]">下注秒數</TableHead>
+                          <TableHead className="w-[140px]">買漲／買跌</TableHead>
+                          <TableHead className="w-[140px]">下注金額</TableHead>
+                          <TableHead className="w-[180px]">下注時間</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {selectedPlanRounds.map(round => {
-                          const start = formatDateLabel(round.startTime);
-                          const end = formatDateLabel(round.endTime);
-                          const status = getRoundStatus(round);
-                        const defaultSingleDirection = selectedPlan?.defaultSingleDirection ?? 'BUY_UP';
-                        const roundMode = round.resultMode ?? (selectedPlan?.defaultResultMode ?? 'RANDOM');
-                        const roundSingleDirection =
-                          round.singleDirection ?? defaultSingleDirection;
-                        return (
-                            <TableRow
-                              key={round.id}
-                              onClick={() => handleRoundRowClick(round)}
-                              className={cn(
-                                'cursor-pointer',
-                                selectedRound?.id === round.id && 'bg-primary/5'
-                              )}
-                            >
-                              <TableCell className="font-medium">{round.roundNumber}</TableCell>
-                              <TableCell>{round.tradingPair}</TableCell>
+                        {filteredTradeRows.map(trade => {
+                          const meta = WINNING_DIRECTION_META[trade.direction];
+                          const IconComponent = meta.icon;
+                          const placedAt = formatDateLabel(trade.placedAt);
+                          return (
+                            <TableRow key={trade.id}>
                               <TableCell>
-                                <div className="flex flex-col">
-                                  <span>{start.dateText}</span>
-                                  <span className="text-xs text-muted-foreground">{start.timeText}</span>
-                                </div>
+                                <Switch
+                                  checked={trade.isWinning}
+                                  onCheckedChange={value => handleToggleTradeResult(trade.id, value)}
+                                />
                               </TableCell>
                               <TableCell>
                                 <div className="flex flex-col">
-                                  <span>{end.dateText}</span>
-                                  <span className="text-xs text-muted-foreground">{end.timeText}</span>
+                                  <span className="font-medium text-sm text-foreground">{trade.userName}</span>
+                                  <span className="text-xs text-muted-foreground">{trade.userId}</span>
+                                  <span className="text-xs text-muted-foreground">交易對：{trade.tradingPair}</span>
                                 </div>
                               </TableCell>
+                              <TableCell>{trade.durationSeconds} 秒</TableCell>
                               <TableCell>
-                                <Select
-                                  value={String(round.duration)}
-                                  onValueChange={(value) => handleRoundDurationChange(round, parseInt(value, 10))}
-                                  disabled={status !== '未開始'}
+                                <span
+                                  className={cn(
+                                    'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium',
+                                    meta.className
+                                  )}
                                 >
-                                  <SelectTrigger
-                                    className="w-24"
-                                    onClick={(event) => event.stopPropagation()}
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {[30, 60, 90, 120, 150, 180].map(option => (
-                                      <SelectItem key={option} value={String(option)}>
-                                        {option} 秒
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                  <IconComponent className="h-3.5 w-3.5" />
+                                  {WINNING_DIRECTION_LABEL[trade.direction]}
+                                </span>
                               </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Select
-                                  value={roundMode}
-                                  onValueChange={(value) =>
-                                    handleRoundResultModeChange(round, value as ResultFilterMode)
-                                  }
-                                  disabled={status === '已結束'}
-                                >
-                                  <SelectTrigger
-                                    className="w-32"
-                                    onClick={event => event.stopPropagation()}
-                                    onPointerDown={event => event.stopPropagation()}
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {Object.entries(RESULT_FILTER_LABEL).map(([value, label]) => (
-                                      <SelectItem key={value} value={value}>
-                                        {label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                {roundMode === 'SINGLE' ? (
-                                  <Select
-                                    value={roundSingleDirection}
-                                    onValueChange={value =>
-                                      handleRoundSingleDirectionChange(round, value as 'BUY_UP' | 'BUY_DOWN')
-                                    }
-                                    disabled={status === '已結束'}
-                                  >
-                                    <SelectTrigger
-                                      className="w-28"
-                                      onClick={event => event.stopPropagation()}
-                                      onPointerDown={event => event.stopPropagation()}
-                                    >
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="BUY_UP">{WINNING_DIRECTION_LABEL.BUY_UP}</SelectItem>
-                                      <SelectItem value="BUY_DOWN">{WINNING_DIRECTION_LABEL.BUY_DOWN}</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                ) : null}
-                              </div>
-                            </TableCell>
+                              <TableCell>${trade.amount.toLocaleString()}</TableCell>
                               <TableCell>
-                                <Badge
-                                  variant={
-                                    status === '進行中'
-                                      ? 'default'
-                                      : status === '未開始'
-                                        ? 'outline'
-                                        : 'secondary'
-                                  }
-                                  className={
-                                    status === '進行中'
-                                      ? 'bg-black text-white'
-                                      : status === '未開始'
-                                        ? 'border-muted text-muted-foreground'
-                                        : undefined
-                                  }
-                                >
-                                  {status}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                {roundMode === 'SINGLE' ? (
-                                  (() => {
-                                    const meta = WINNING_DIRECTION_META[round.winningDirection ?? 'BUY_UP'];
-                                    const IconComponent = meta.icon;
-                                    return (
-                                      <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium', meta.className)}>
-                                        <IconComponent className="h-4 w-4" />
-                                        {meta.label}
-                                      </span>
-                                    );
-                                  })()
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">依策略產生</span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex justify-end">
-                                  <Button
-                                    size="icon"
-                                    variant="outline"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openRoundDialog(round);
-                                    }}
-                                    disabled={status !== '未開始'}
-                                    aria-label="編輯盤資訊"
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
+                                <div className="flex flex-col text-xs text-muted-foreground">
+                                  <span>{placedAt.dateText}</span>
+                                  <span>{placedAt.timeText}</span>
                                 </div>
                               </TableCell>
                             </TableRow>
@@ -1531,196 +1432,6 @@ export const OpeningSettingsPage = () => {
                         })}
                       </TableBody>
                     </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>小盤交易資訊</CardTitle>
-                <CardDescription>點擊左側小盤查看其下單紀錄與統計。</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {!selectedPlanId ? (
-                  <div className="py-10 text-center text-sm text-muted-foreground">
-                    請先選擇大盤以查看小盤交易資訊。
-                  </div>
-                ) : !selectedRound ? (
-                  <div className="py-10 text-center text-sm text-muted-foreground">
-                    尚未選擇小盤或目前無資料。
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <span className="font-medium text-foreground">輸贏策略：</span>
-                          {RESULT_FILTER_LABEL[selectedRoundMode]}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">盤號：</span>
-                          {selectedRound.roundNumber}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">交易對：</span>
-                          {selectedRound.tradingPair}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">開始時間：</span>
-                          {formatDateLabel(selectedRound.startTime).dateText}{' '}
-                          {formatDateLabel(selectedRound.startTime).timeText}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">結束時間：</span>
-                          {formatDateLabel(selectedRound.endTime).dateText}{' '}
-                          {formatDateLabel(selectedRound.endTime).timeText}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">距離結束：</span>
-                          <span
-                            className={cn(
-                              formatDurationCountdown(selectedRound, currentTime).isExpired
-                                ? 'text-destructive'
-                                : 'text-foreground'
-                            )}
-                          >
-                            {formatDurationCountdown(selectedRound, currentTime).text}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">狀態：</span>
-                          <Badge
-                            variant={
-                              getRoundStatus(selectedRound) === '進行中'
-                                ? 'default'
-                                : getRoundStatus(selectedRound) === '未開始'
-                                  ? 'outline'
-                                  : 'secondary'
-                            }
-                          >
-                            {getRoundStatus(selectedRound)}
-                          </Badge>
-                        </div>
-                        {selectedRoundMode === 'SINGLE' ? (
-                          <div>
-                            <span className="font-medium text-foreground">勝出方向：</span>
-                            {(() => {
-                              const meta = WINNING_DIRECTION_META[selectedRound.winningDirection ?? selectedRoundSingleDirection];
-                              const IconComponent = meta.icon;
-                              return (
-                                <span className={cn('ml-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium', meta.className)}>
-                                  <IconComponent className="h-4 w-4" />
-                                  {meta.label}
-                                </span>
-                              );
-                            })()}
-                          </div>
-                        ) : (
-                          <div>
-                            <span className="font-medium text-foreground">勝出方向：</span>
-                            <span className="text-xs text-muted-foreground">
-                              依策略自動決定
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-md border bg-background px-3 py-2 shadow-sm">
-                        <p className="text-xs text-muted-foreground">總下注金額</p>
-                        <p className="text-lg font-semibold text-foreground">
-                          ${roundTradeSummary.totalAmount.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="rounded-md border bg-background px-3 py-2 shadow-sm">
-                        <p className="text-xs text-muted-foreground">買漲筆數</p>
-                        <p className="text-lg font-semibold text-green-600">
-                          {roundTradeSummary.buyUp}
-                        </p>
-                      </div>
-                      <div className="rounded-md border bg-background px-3 py-2 shadow-sm">
-                        <p className="text-xs text-muted-foreground">買跌筆數</p>
-                        <p className="text-lg font-semibold text-red-600">
-                          {roundTradeSummary.buyDown}
-                        </p>
-                      </div>
-                    </div>
-
-                    {selectedRoundTrades.length === 0 ? (
-                      <div className="py-10 text-center text-sm text-muted-foreground">
-                        此小盤尚無用戶下單紀錄。
-                      </div>
-                    ) : (
-                      <div className="overflow-auto rounded-md border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="min-w-[90px] text-center">輸 → 贏</TableHead>
-                          <TableHead className="min-w-[90px]">用戶</TableHead>
-                              <TableHead className="min-w-[100px]">方向</TableHead>
-                              <TableHead className="min-w-[120px] text-right">下注金額</TableHead>
-                              <TableHead className="min-w-[180px]">下單時間</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {selectedRoundTrades.map(trade => {
-                              const meta = WINNING_DIRECTION_META[trade.direction];
-                              const IconComponent = meta.icon;
-                              const winState =
-                                trade.direction === (selectedRound?.winningDirection ?? selectedRoundSingleDirection)
-                                  ? 'WIN'
-                                  : 'LOSS';
-                              const countdown = formatDurationCountdown(selectedRound, currentTime);
-                              return (
-                                <TableRow key={trade.id}>
-                                  <TableCell className="text-center">
-                                    <Switch
-                                      checked={winState === 'WIN'}
-                                      onCheckedChange={value =>
-                                        selectedRound &&
-                                        handleTradeWinLossChange(
-                                          selectedRound,
-                                          trade,
-                                          value ? 'WIN' : 'LOSS'
-                                        )
-                                      }
-                                      disabled={countdown.isExpired}
-                                    />
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="flex flex-col">
-                                      <span className="font-medium text-foreground">{trade.userName}</span>
-                                      <span className="text-xs text-muted-foreground">{trade.userId}</span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium', meta.className)}>
-                                      <IconComponent className="h-4 w-4" />
-                                      {meta.label}
-                                    </span>
-                                  </TableCell>
-                                  <TableCell className="text-right font-medium">
-                                    ${trade.amount.toLocaleString()}
-                                  </TableCell>
-                                  <TableCell>
-                                    {new Date(trade.placedAt).toLocaleString('zh-TW', {
-                                      year: 'numeric',
-                                      month: '2-digit',
-                                      day: '2-digit',
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                      second: '2-digit'
-                                    })}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    )}
                   </div>
                 )}
               </CardContent>
@@ -1768,75 +1479,6 @@ export const OpeningSettingsPage = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>交易對（可多選）</Label>
-              <div className="max-h-48 overflow-y-auto rounded-md border p-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {TRADING_PAIRS.map(pair => {
-                    const checked = dialogState.selectedPairs.has(pair);
-                    return (
-                      <label key={pair} className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={(value) => {
-                            setDialogState(prev => {
-                              const next = new Set(prev.selectedPairs);
-                              if (value) {
-                                next.add(pair);
-                              } else {
-                                next.delete(pair);
-                              }
-                              return { ...prev, selectedPairs: next };
-                            });
-                          }}
-                        />
-                        <span>{pair}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-              {dialogState.errors.tradingPairs && (
-                <p className="text-xs text-destructive">{dialogState.errors.tradingPairs}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="plan-duration">每盤時間（秒）</Label>
-              <Select
-                value={dialogState.durationInput}
-                onValueChange={(value) => setDialogState(prev => ({ ...prev, durationInput: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[30, 60, 90, 120, 150, 180].map(option => (
-                    <SelectItem key={option} value={String(option)}>
-                      {option} 秒
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {dialogState.errors.duration && (
-                <p className="text-xs text-destructive">{dialogState.errors.duration}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="plan-initial-rounds">初始生成小盤數</Label>
-              <Input
-                id="plan-initial-rounds"
-                type="number"
-                min={1}
-                value={dialogState.initialRoundsInput}
-                onChange={(e) => setDialogState(prev => ({ ...prev, initialRoundsInput: e.target.value }))}
-              />
-              {dialogState.errors.initialRounds && (
-                <p className="text-xs text-destructive">{dialogState.errors.initialRounds}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="plan-result-filter">輸贏篩選</Label>
               <Select
                 value={dialogState.defaultResultMode}
@@ -1859,32 +1501,6 @@ export const OpeningSettingsPage = () => {
                 </SelectContent>
               </Select>
             </div>
-
-            {dialogState.defaultResultMode === 'SINGLE' ? (
-              <div className="space-y-2">
-                <Label htmlFor="plan-single-direction">單一勝出方向</Label>
-                <Select
-                  value={dialogState.defaultSingleDirection}
-                  onValueChange={(value) =>
-                    setDialogState(prev => ({
-                      ...prev,
-                      defaultSingleDirection: value as 'BUY_UP' | 'BUY_DOWN'
-                    }))
-                  }
-                >
-                  <SelectTrigger id="plan-single-direction">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="BUY_UP">{WINNING_DIRECTION_LABEL.BUY_UP}</SelectItem>
-                    <SelectItem value="BUY_DOWN">{WINNING_DIRECTION_LABEL.BUY_DOWN}</SelectItem>
-                  </SelectContent>
-                </Select>
-                {dialogState.errors.defaultSingleDirection && (
-                  <p className="text-xs text-destructive">{dialogState.errors.defaultSingleDirection}</p>
-                )}
-              </div>
-            ) : null}
 
             <div className="flex items-center justify-between rounded-md border px-4 py-3">
               <div>
@@ -1986,7 +1602,7 @@ export const OpeningSettingsPage = () => {
                 <Select
                   value={
                     roundDialog.targetRound?.resultMode ??
-                    selectedRoundMode ??
+                    selectedPlan?.defaultResultMode ??
                     'RANDOM'
                   }
                   onValueChange={value =>
@@ -2010,38 +1626,6 @@ export const OpeningSettingsPage = () => {
                   </SelectContent>
                 </Select>
               </div>
-              {(roundDialog.targetRound?.resultMode ??
-                selectedRoundMode ??
-                'RANDOM') === 'SINGLE' ? (
-                <div className="space-y-2">
-                  <Label>單一勝出方向</Label>
-                  <Select
-                    value={
-                      roundDialog.targetRound?.singleDirection ??
-                      selectedRoundSingleDirection ??
-                      'BUY_UP'
-                    }
-                    onValueChange={value =>
-                      setRoundDialog(prev => ({
-                        ...prev,
-                        targetRound: prev.targetRound
-                          ? { ...prev.targetRound, singleDirection: value as 'BUY_UP' | 'BUY_DOWN' }
-                          : prev.targetRound,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="BUY_UP">{WINNING_DIRECTION_LABEL.BUY_UP}</SelectItem>
-                      <SelectItem value="BUY_DOWN">{WINNING_DIRECTION_LABEL.BUY_DOWN}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <div />
-              )}
             </div>
 
             <div className="space-y-2">

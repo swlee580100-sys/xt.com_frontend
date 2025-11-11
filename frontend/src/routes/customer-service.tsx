@@ -1,14 +1,35 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MessageCircle, Send, Loader2, Paperclip, X } from 'lucide-react';
+import { MessageCircle, Send, Loader2 } from 'lucide-react';
 
-import { useAuth } from '@/hooks/useAuth';
 import { supportService } from '@/services/support';
-import type { SupportConversation } from '@/types/support';
+import type {
+  SupportConversation,
+  SupportMessage,
+  SupportConversationStatus
+} from '@/types/support';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose
+} from '@/components/ui/dialog';
 
 const formatDateTime = (iso: string): string => {
   const date = new Date(iso);
@@ -26,12 +47,11 @@ const formatDateTime = (iso: string): string => {
 };
 
 export const CustomerServicePage = () => {
-  const { api } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: conversations = [], isLoading: listLoading } = useQuery({
     queryKey: ['support', 'conversations'],
-    queryFn: () => supportService.listConversations(api),
+    queryFn: () => supportService.listConversations(),
     staleTime: 30_000
   });
 
@@ -39,8 +59,26 @@ export const CustomerServicePage = () => {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [localMessages, setLocalMessages] = useState<Record<string, SupportMessage[]>>({});
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+
+  const STATUS_META: Record<
+    SupportConversationStatus,
+    { label: string; badge: 'destructive' | 'info' | 'success' }
+  > = {
+    PENDING: {
+      label: '待處理',
+      badge: 'destructive'
+    },
+    IN_PROGRESS: {
+      label: '處理中',
+      badge: 'info'
+    },
+    RESOLVED: {
+      label: '處理完畢',
+      badge: 'success'
+    }
+  };
 
   useEffect(() => {
     if (selectedConversationId) return;
@@ -64,7 +102,7 @@ export const CustomerServicePage = () => {
     isRefetching: detailRefetching
   } = useQuery({
     queryKey: ['support', 'conversation', selectedConversationId],
-    queryFn: () => supportService.getConversation(api, selectedConversationId ?? ''),
+    queryFn: () => supportService.getConversation(null, selectedConversationId ?? ''),
     enabled: Boolean(selectedConversationId),
     refetchInterval: 15_000
   });
@@ -72,33 +110,273 @@ export const CustomerServicePage = () => {
   useEffect(() => {
     if (!selectedConversationId) return;
     supportService
-      .markConversationRead(api, selectedConversationId)
+      .markConversationRead(null, selectedConversationId)
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ['support', 'conversations'] });
       })
       .catch(() => {
         // ignore errors for marking read
       });
-  }, [api, queryClient, selectedConversationId]);
+  }, [queryClient, selectedConversationId]);
+
+  useEffect(() => {
+    if (!selectedConversationId || !conversationDetail) {
+      return;
+    }
+    setLocalMessages(prev => {
+      const remote = conversationDetail.messages ?? [];
+      const existing = prev[selectedConversationId] ?? [];
+      const mergedMap = new Map<string, SupportMessage>();
+      [...remote, ...existing].forEach(message => {
+        mergedMap.set(message.id, message);
+      });
+      const merged = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      return {
+        ...prev,
+        [selectedConversationId]: merged
+      };
+    });
+  }, [conversationDetail, selectedConversationId]);
 
   const replyMutation = useMutation({
-    mutationFn: () =>
-      supportService.replyConversation(api, selectedConversationId ?? '', {
-        content: replyContent.trim(),
-        attachment: attachmentFile
-      }),
-    onSuccess: () => {
+    mutationFn: async () => {
+      if (!selectedConversationId) {
+        throw new Error('未選擇對話');
+      }
+      const trimmed = replyContent.trim();
+      if (!trimmed) {
+        throw new Error('回覆內容不可為空');
+      }
+      const optimisticMessage: SupportMessage = {
+        id: `local-${Date.now()}`,
+        sender: 'ADMIN',
+        content: trimmed,
+        createdAt: new Date().toISOString(),
+        read: true
+      };
+      setLocalMessages(prev => {
+        const existing = prev[selectedConversationId] ?? [];
+        const nextMessages = [...existing, optimisticMessage];
+        return {
+          ...prev,
+          [selectedConversationId]: nextMessages
+        };
+      });
+      queryClient.setQueryData<SupportConversation | undefined>(
+        ['support', 'conversation', selectedConversationId],
+        previous =>
+          previous
+            ? {
+                ...previous,
+                lastMessageAt: optimisticMessage.createdAt,
+                messages: [...previous.messages, optimisticMessage]
+              }
+            : previous
+      );
+      queryClient.setQueryData<SupportConversation[] | undefined>(
+        ['support', 'conversations'],
+        previous =>
+          previous
+            ? previous.map(conversation =>
+                conversation.id === selectedConversationId
+                  ? {
+                      ...conversation,
+                      lastMessageAt: optimisticMessage.createdAt,
+                      unreadCount: 0,
+                      messages: [...conversation.messages, optimisticMessage]
+                    }
+                  : conversation
+              )
+            : previous
+      );
+      const response = await supportService.replyConversation(null, selectedConversationId, {
+        content: trimmed
+      });
+      return { optimisticMessage, response };
+    },
+    onSuccess: ({ optimisticMessage, response }) => {
       setReplyContent('');
-      setAttachmentFile(null);
       setSubmitError(null);
-      queryClient.invalidateQueries({ queryKey: ['support', 'conversation', selectedConversationId] });
-      queryClient.invalidateQueries({ queryKey: ['support', 'conversations'] });
+      if (!selectedConversationId) {
+        return;
+      }
+      setLocalMessages(prev => {
+        const existing = prev[selectedConversationId] ?? [];
+        const replaced = existing.map(message =>
+          message.id === optimisticMessage.id ? response : message
+        );
+        return {
+          ...prev,
+          [selectedConversationId]: replaced
+        };
+      });
+      queryClient.setQueryData<SupportConversation | undefined>(
+        ['support', 'conversation', selectedConversationId],
+        previous =>
+          previous
+            ? {
+                ...previous,
+                lastMessageAt: response.createdAt,
+                messages: previous.messages.map(message =>
+                  message.id === optimisticMessage.id ? response : message
+                )
+              }
+            : previous
+      );
+      queryClient.setQueryData<SupportConversation[] | undefined>(
+        ['support', 'conversations'],
+        previous =>
+          previous
+            ? previous.map(conversation =>
+                conversation.id === selectedConversationId
+                  ? {
+                      ...conversation,
+                      lastMessageAt: response.createdAt,
+                      messages: conversation.messages.map(message =>
+                        message.id === optimisticMessage.id ? response : message
+                      )
+                    }
+                  : conversation
+              )
+            : previous
+      );
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || error?.message || '訊息送出失敗，請稍後再試';
       setSubmitError(message);
+      if (selectedConversationId) {
+        setLocalMessages(prev => {
+          const existing = prev[selectedConversationId] ?? [];
+          const filtered = existing.filter(msg => !msg.id.startsWith('local-'));
+          return {
+            ...prev,
+            [selectedConversationId]: filtered
+          };
+        });
+        queryClient.invalidateQueries({ queryKey: ['support', 'conversation', selectedConversationId] });
+        queryClient.invalidateQueries({ queryKey: ['support', 'conversations'] });
+      }
+    },
+    onSettled: () => {
+      if (selectedConversationId) {
+        queryClient.invalidateQueries({ queryKey: ['support', 'conversation', selectedConversationId] });
+        queryClient.invalidateQueries({ queryKey: ['support', 'conversations'] });
+      }
     }
   });
+
+  const statusMutation = useMutation({
+    mutationFn: async (nextStatus: SupportConversationStatus) => {
+      if (!selectedConversationId) {
+        throw new Error('未選擇對話');
+      }
+      return supportService.updateConversationStatus(null, selectedConversationId, {
+        status: nextStatus
+      });
+    },
+    onMutate: async nextStatus => {
+      if (!selectedConversationId) {
+        return;
+      }
+      const queryKey = ['support', 'conversation', selectedConversationId] as const;
+      const listKey = ['support', 'conversations'] as const;
+
+      const previousConversation = queryClient.getQueryData<SupportConversation | undefined>(queryKey);
+      const previousList = queryClient.getQueryData<SupportConversation[] | undefined>(listKey);
+
+      queryClient.setQueryData<SupportConversation | undefined>(queryKey, previous =>
+        previous ? { ...previous, status: nextStatus } : previous
+      );
+      queryClient.setQueryData<SupportConversation[] | undefined>(listKey, previous =>
+        previous
+          ? previous.map(conversation =>
+              conversation.id === selectedConversationId
+                ? { ...conversation, status: nextStatus }
+                : conversation
+            )
+          : previous
+      );
+
+      return { previousConversation, previousList };
+    },
+    onError: (_error, _status, context) => {
+      if (!context || !selectedConversationId) {
+        return;
+      }
+      const queryKey = ['support', 'conversation', selectedConversationId] as const;
+      const listKey = ['support', 'conversations'] as const;
+
+      if (context.previousConversation) {
+        queryClient.setQueryData(queryKey, context.previousConversation);
+      }
+      if (context.previousList) {
+        queryClient.setQueryData(listKey, context.previousList);
+      }
+    },
+    onSuccess: updated => {
+      if (!selectedConversationId) return;
+      const queryKey = ['support', 'conversation', selectedConversationId] as const;
+      queryClient.setQueryData<SupportConversation | undefined>(queryKey, previous =>
+        previous ? { ...previous, status: updated.status } : previous
+      );
+    },
+    onSettled: () => {
+      if (!selectedConversationId) return;
+      queryClient.invalidateQueries({ queryKey: ['support', 'conversation', selectedConversationId] });
+      queryClient.invalidateQueries({ queryKey: ['support', 'conversations'] });
+    }
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () => supportService.clearConversations(),
+    onSuccess: () => {
+      setLocalMessages({});
+      setSelectedConversationId(null);
+      setReplyContent('');
+      queryClient.removeQueries({ queryKey: ['support', 'conversation'] });
+      queryClient.invalidateQueries({ queryKey: ['support', 'conversations'] });
+    },
+    onSettled: () => {
+      setIsClearDialogOpen(false);
+    }
+  });
+
+  const baseConversation = useMemo(() => {
+    if (conversationDetail) {
+      return conversationDetail;
+    }
+    if (!selectedConversationId) {
+      return null;
+    }
+    return filteredConversations.find(item => item.id === selectedConversationId) ?? null;
+  }, [conversationDetail, filteredConversations, selectedConversationId]);
+
+  const displayedMessages = useMemo(() => {
+    if (!selectedConversationId) {
+      return [];
+    }
+    const remoteMessages = baseConversation?.messages ?? [];
+    const local = localMessages[selectedConversationId] ?? [];
+    const mergedMap = new Map<string, SupportMessage>();
+    [...remoteMessages, ...local].forEach(message => {
+      mergedMap.set(message.id, message);
+    });
+    const merged = Array.from(mergedMap.values()).sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    return merged;
+  }, [baseConversation, localMessages, selectedConversationId]);
+
+  const currentConversation = baseConversation
+    ? {
+        ...baseConversation,
+        messages: displayedMessages
+      }
+    : null;
+  const currentStatus: SupportConversationStatus = currentConversation?.status ?? 'PENDING';
+  const currentStatusMeta = STATUS_META[currentStatus];
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -110,8 +388,6 @@ export const CustomerServicePage = () => {
     }
     replyMutation.mutate();
   };
-
-  const currentConversation = conversationDetail ?? filteredConversations.find(item => item.id === selectedConversationId);
 
   return (
     <div className="space-y-6">
@@ -166,8 +442,13 @@ export const CustomerServicePage = () => {
                           {formatDateTime(conversation.lastMessageAt)}
                         </span>
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground line-clamp-2">
-                        {lastMessage}
+                      <div className="mt-1 flex items-center gap-2">
+                        <Badge variant={STATUS_META[conversation.status ?? 'PENDING'].badge}>
+                          {STATUS_META[conversation.status ?? 'PENDING'].label}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground line-clamp-2">
+                          {lastMessage}
+                        </span>
                       </div>
                       {conversation.unreadCount ? (
                         <span className="mt-2 inline-flex items-center rounded-full bg-destructive px-2 py-0.5 text-[10px] font-medium text-destructive-foreground">
@@ -194,12 +475,73 @@ export const CustomerServicePage = () => {
                   : '請從左側列表選擇一位用戶'}
               </CardDescription>
             </div>
-            {detailRefetching ? (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                更新中...
-              </span>
-            ) : null}
+            <div className="flex flex-wrap items-center gap-3">
+              <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-destructive text-destructive hover:bg-destructive/10"
+                    disabled={clearMutation.isPending || conversations.length === 0}
+                  >
+                    清除所有對話
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>確定要清除所有對話紀錄？</DialogTitle>
+                    <DialogDescription>
+                      此操作將刪除所有客服對話的訊息記錄，執行後無法復原。
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <DialogClose asChild>
+                      <Button variant="outline" disabled={clearMutation.isPending}>
+                        取消
+                      </Button>
+                    </DialogClose>
+                    <Button
+                      variant="destructive"
+                      onClick={() => clearMutation.mutate()}
+                      disabled={clearMutation.isPending}
+                    >
+                      {clearMutation.isPending ? '刪除中...' : '確認刪除'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {currentConversation ? (
+                <div className="flex items-center gap-2">
+                  <Badge variant={currentStatusMeta.badge}>{currentStatusMeta.label}</Badge>
+                  <Select
+                    value={currentStatus}
+                    onValueChange={value => {
+                      if (!currentConversation || value === currentStatus) return;
+                      statusMutation.mutate(value as SupportConversationStatus);
+                    }}
+                    disabled={statusMutation.isPending}
+                  >
+                    <SelectTrigger className="h-9 w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(STATUS_META).map(([value, meta]) => (
+                        <SelectItem value={value} key={value}>
+                          {meta.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+              {detailRefetching ? (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  更新中...
+                </span>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="flex h-full flex-col gap-3 overflow-hidden">
             <div className="flex-1 min-h-0 space-y-3 overflow-y-auto rounded-md border p-4">
@@ -254,72 +596,24 @@ export const CustomerServicePage = () => {
                   }}
                   disabled={!currentConversation || replyMutation.isPending}
                 />
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (replyMutation.isPending || !currentConversation) return;
-                      fileInputRef.current?.click();
-                    }}
-                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-dashed border-input bg-muted/40 text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={!currentConversation || replyMutation.isPending}
-                    aria-label="選擇附件"
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </button>
-                  <input
-                    id="support-attachment"
-                    type="file"
-                    accept="image/*,video/*"
-                    className="hidden"
-                    ref={fileInputRef}
-                    onChange={event => {
-                      const file = event.target.files?.[0] ?? null;
-                      setAttachmentFile(file);
-                    }}
-                    disabled={!currentConversation || replyMutation.isPending}
-                  />
-                  <Button
-                    type="submit"
-                    disabled={!currentConversation || replyMutation.isPending}
-                    className="inline-flex h-11 shrink-0 items-center gap-2 px-4"
-                  >
-                    {replyMutation.isPending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        送出中...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4" />
-                        發送回覆
-                      </>
-                    )}
-                  </Button>
-                </div>
+                <Button
+                  type="submit"
+                  disabled={!currentConversation || replyMutation.isPending}
+                  className="inline-flex h-11 shrink-0 items-center gap-2 px-4"
+                >
+                  {replyMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      送出中...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      發送回覆
+                    </>
+                  )}
+                </Button>
               </div>
-              {attachmentFile ? (
-                <div className="flex items-center gap-2 rounded-md border border-muted px-3 py-2 text-sm text-muted-foreground">
-                  <span className="inline-flex items-center gap-2 truncate">
-                    <Paperclip className="h-4 w-4" />
-                    {attachmentFile.name}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                    onClick={() => setAttachmentFile(null)}
-                    disabled={replyMutation.isPending}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  可附加圖片或影片（單檔），將與訊息一併傳送。
-                </p>
-              )}
               {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
             </form>
           </CardContent>

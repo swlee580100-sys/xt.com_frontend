@@ -1342,7 +1342,7 @@ export const CmsPage = () => {
                             ? renderShareCopyForm()
                             : isDepositAddress
                               ? renderDepositAddressForm()
-                              : placeholder}
+                          : placeholder}
                 </CardContent>
               </Card>
 
