@@ -15,11 +15,7 @@ import { adminService } from '@/services/admins';
 import { ipWhitelistService, type QueryIpWhitelistParams } from '@/services/ip-whitelist';
 import type {
   UpdateTradingChannelsDto,
-  UpdateCustomerServiceDto,
-  UpdateLatencyDto,
   TradingChannel,
-  CustomerServiceConfig,
-  LatencyConfig,
   IpWhitelist,
   IpWhitelistConfig,
   UpdateIpWhitelistConfigDto,
@@ -78,18 +74,6 @@ export const SettingsPage = () => {
   // 交易渠道狀態
   const [tradingChannels, setTradingChannels] = useState<TradingChannel[]>([]);
 
-  // 客服窗口狀態
-  const [customerService, setCustomerService] = useState<CustomerServiceConfig>({
-    enabled: false,
-    position: 'bottom-right',
-    theme: 'light',
-  });
-
-  // 延遲設置狀態
-  const [latency, setLatency] = useState<LatencyConfig>({
-    userDataDelay: 0,
-  });
-
   // 託管模式狀態
   const [managedModeEnabled, setManagedModeEnabled] = useState(false);
 
@@ -116,28 +100,6 @@ export const SettingsPage = () => {
           { name: 'Binance', enabled: true },
           { name: 'Coinbase', enabled: false },
         ]);
-      }
-    },
-  });
-
-  // 获取客服窗口設置
-  const { data: customerServiceData } = useQuery({
-    queryKey: ['settings', 'customer-service'],
-    queryFn: () => settingsService.getCustomerService(api),
-    onSuccess: (data) => {
-      if (data) {
-        setCustomerService(data);
-      }
-    },
-  });
-
-  // 获取延遲設置
-  const { data: latencyData } = useQuery({
-    queryKey: ['settings', 'latency'],
-    queryFn: () => settingsService.getLatency(api),
-    onSuccess: (data) => {
-      if (data) {
-        setLatency(data);
       }
     },
   });
@@ -211,24 +173,6 @@ export const SettingsPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'trading-channels'] });
       alert('交易渠道設置已更新');
-    },
-  });
-
-  const updateCustomerServiceMutation = useMutation({
-    mutationFn: (data: UpdateCustomerServiceDto) =>
-      settingsService.updateCustomerService(api, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'customer-service'] });
-      alert('客服窗口設置已更新');
-    },
-  });
-
-  const updateLatencyMutation = useMutation({
-    mutationFn: (data: UpdateLatencyDto) =>
-      settingsService.updateLatency(api, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'latency'] });
-      alert('延遲設置已更新');
     },
   });
 
@@ -478,14 +422,6 @@ export const SettingsPage = () => {
     updateTradingChannelsMutation.mutate({ channels: tradingChannels });
   };
 
-  const handleUpdateCustomerService = () => {
-    updateCustomerServiceMutation.mutate({ config: customerService });
-  };
-
-  const handleUpdateLatency = () => {
-    updateLatencyMutation.mutate({ config: latency });
-  };
-
   const addTradingChannel = () => {
     setTradingChannels([
       ...tradingChannels,
@@ -516,8 +452,6 @@ export const SettingsPage = () => {
           <TabsTrigger value="ip-whitelist">IP白名單</TabsTrigger>
           <TabsTrigger value="trading">交易渠道</TabsTrigger>
           <TabsTrigger value="managed-mode">託管模式</TabsTrigger>
-          <TabsTrigger value="customer-service">客服窗口</TabsTrigger>
-          <TabsTrigger value="latency">延遲設置</TabsTrigger>
         </TabsList>
 
         {/* 管理員帳號設置 */}
@@ -754,137 +688,6 @@ export const SettingsPage = () => {
           </Card>
         </TabsContent>
 
-        {/* 客服窗口設置 */}
-        <TabsContent value="customer-service">
-          <Card>
-            <CardHeader>
-              <CardTitle>客服窗口設置</CardTitle>
-              <CardDescription>
-                配置客服聊天窗口的位置、主題和提供商
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>啟用客服窗口</Label>
-        <p className="text-sm text-muted-foreground">
-                    在网站中顯示客服聊天窗口
-                  </p>
-                </div>
-                <Switch
-                  checked={customerService.enabled}
-                  onCheckedChange={(checked) =>
-                    setCustomerService({ ...customerService, enabled: checked })
-                  }
-                />
-              </div>
-
-              {customerService.enabled && (
-                <>
-                  <div className="space-y-2">
-                    <Label>提供商</Label>
-                    <select
-                      className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                      value={customerService.provider || 'custom'}
-                      onChange={(e) =>
-                        setCustomerService({ ...customerService, provider: e.target.value })
-                      }
-                    >
-                      <option value="custom">自定义</option>
-                      <option value="tawk">Tawk.to</option>
-                      <option value="intercom">Intercom</option>
-                    </select>
-                  </div>
-
-                  {customerService.provider === 'custom' && (
-                    <div className="space-y-2">
-                      <Label>腳本 URL</Label>
-                      <Input
-                        value={customerService.scriptUrl || ''}
-                        onChange={(e) =>
-                          setCustomerService({ ...customerService, scriptUrl: e.target.value })
-                        }
-                        placeholder="https://example.com/widget.js"
-                      />
-                    </div>
-                  )}
-
-                  {(customerService.provider === 'tawk' || customerService.provider === 'intercom') && (
-                    <div className="space-y-2">
-                      <Label>Widget ID</Label>
-                      <Input
-                        value={customerService.widgetId || ''}
-                        onChange={(e) =>
-                          setCustomerService({ ...customerService, widgetId: e.target.value })
-                        }
-                        placeholder="輸入 Widget ID"
-                      />
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>位置</Label>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                        value={customerService.position}
-                        onChange={(e) =>
-                          setCustomerService({
-                            ...customerService,
-                            position: e.target.value as any,
-                          })
-                        }
-                      >
-                        <option value="bottom-right">右下角</option>
-                        <option value="bottom-left">左下角</option>
-                        <option value="top-right">右上角</option>
-                        <option value="top-left">左上角</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>主題</Label>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                        value={customerService.theme}
-                        onChange={(e) =>
-                          setCustomerService({
-                            ...customerService,
-                            theme: e.target.value as any,
-                          })
-                        }
-                      >
-                        <option value="light">浅色</option>
-                        <option value="dark">深色</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>歡迎消息</Label>
-                    <Input
-                      value={customerService.welcomeMessage || ''}
-                      onChange={(e) =>
-                        setCustomerService({
-                          ...customerService,
-                          welcomeMessage: e.target.value,
-                        })
-                      }
-                      placeholder="輸入歡迎消息（可選）"
-                    />
-                  </div>
-                </>
-              )}
-
-              <Button
-                onClick={handleUpdateCustomerService}
-                disabled={updateCustomerServiceMutation.isPending}
-              >
-                {updateCustomerServiceMutation.isPending ? '保存中...' : '保存設置'}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {/* 託管模式設置 */}
         <TabsContent value="managed-mode">
           <Card>
@@ -919,44 +722,6 @@ export const SettingsPage = () => {
           </Card>
         </TabsContent>
 
-        {/* 延遲設置 */}
-        <TabsContent value="latency">
-          <Card>
-            <CardHeader>
-              <CardTitle>延遲設置</CardTitle>
-              <CardDescription>
-                配置用戶數據的延遲時間（單位：秒）
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                <div className="space-y-2">
-                <Label htmlFor="userDataDelay">用戶數據延遲</Label>
-                  <Input
-                  id="userDataDelay"
-                    type="number"
-                    min="0"
-                  step="0.1"
-                  value={latency.userDataDelay}
-                    onChange={(e) =>
-                      setLatency({
-                        ...latency,
-                      userDataDelay: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                  用戶數據的延遲時間（秒）
-                  </p>
-                </div>
-              <Button
-                onClick={handleUpdateLatency}
-                disabled={updateLatencyMutation.isPending}
-              >
-                {updateLatencyMutation.isPending ? '保存中...' : '保存設置'}
-              </Button>
-      </CardContent>
-    </Card>
-        </TabsContent>
 
         {/* IP白名單管理 */}
         <TabsContent value="ip-whitelist">

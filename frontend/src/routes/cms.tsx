@@ -199,6 +199,7 @@ export const CmsPage = () => {
   const [shareCopyFetchError, setShareCopyFetchError] = useState<string | null>(null);
   const [shareCopySuccess, setShareCopySuccess] = useState<string | null>(null);
   const [depositAddress, setDepositAddress] = useState<string>(DEFAULT_DEPOSIT_ADDRESS);
+  const [depositAddressQrcode, setDepositAddressQrcode] = useState<string | null>(null);
   const [depositAddressError, setDepositAddressError] = useState<string | null>(null);
   const [depositAddressSuccess, setDepositAddressSuccess] = useState<string | null>(null);
 
@@ -282,8 +283,10 @@ export const CmsPage = () => {
   useEffect(() => {
     if (depositAddressSetting && typeof depositAddressSetting.address === 'string') {
       setDepositAddress(depositAddressSetting.address || DEFAULT_DEPOSIT_ADDRESS);
+      setDepositAddressQrcode(depositAddressSetting.qrcode || null);
     } else if (!depositAddressLoading && !depositAddressSetting) {
       setDepositAddress(DEFAULT_DEPOSIT_ADDRESS);
+      setDepositAddressQrcode(null);
     }
   }, [depositAddressSetting, depositAddressLoading]);
 
@@ -456,6 +459,7 @@ export const CmsPage = () => {
       setDepositAddressError(null);
       setDepositAddressSuccess('入金地址已更新');
       setDepositAddress(data.address || DEFAULT_DEPOSIT_ADDRESS);
+      setDepositAddressQrcode(data.qrcode || null);
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || error?.message || '更新失敗，請稍後再試';
@@ -1201,6 +1205,7 @@ export const CmsPage = () => {
   const handleDepositAddressReset = () => {
     const fallback = depositAddressSetting?.defaultAddress ?? DEFAULT_DEPOSIT_ADDRESS;
     setDepositAddress(fallback);
+    setDepositAddressQrcode(null);
     setDepositAddressError(null);
     setDepositAddressSuccess(null);
   };
@@ -1213,7 +1218,47 @@ export const CmsPage = () => {
       setDepositAddressSuccess(null);
       return;
     }
-    updateDepositAddressMutation.mutate({ address: trimmed });
+    updateDepositAddressMutation.mutate({ 
+      address: trimmed,
+      qrcode: depositAddressQrcode || undefined
+    });
+  };
+
+  const handleQrcodeUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // 檢查文件類型
+    if (!file.type.startsWith('image/')) {
+      setDepositAddressError('請上傳圖片文件');
+      return;
+    }
+
+    // 檢查文件大小（限制為 5MB）
+    if (file.size > 5 * 1024 * 1024) {
+      setDepositAddressError('圖片大小不能超過 5MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result;
+      if (typeof result === 'string') {
+        setDepositAddressQrcode(result);
+        setDepositAddressError(null);
+        setDepositAddressSuccess(null);
+      }
+    };
+    reader.onerror = () => {
+      setDepositAddressError('圖片讀取失敗，請重試');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveQrcode = () => {
+    setDepositAddressQrcode(null);
+    setDepositAddressError(null);
+    setDepositAddressSuccess(null);
   };
 
   const renderDepositAddressForm = () => {
@@ -1254,6 +1299,50 @@ export const CmsPage = () => {
               用戶在入金頁面會看到此地址，請確認與錢包資訊一致。
             </p>
           )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="qrcode-upload">QR Code 圖片</Label>
+          <div className="space-y-3">
+            {depositAddressQrcode ? (
+              <div className="space-y-2">
+                <div className="relative inline-block">
+                  <img
+                    src={depositAddressQrcode}
+                    alt="QR Code"
+                    className="h-32 w-32 border rounded-md object-contain"
+                  />
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                    onClick={handleRemoveQrcode}
+                    disabled={updateDepositAddressMutation.isPending}
+                  >
+                    ×
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  已上傳 QR Code 圖片，點擊 × 可移除
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  id="qrcode-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleQrcodeUpload}
+                  disabled={updateDepositAddressMutation.isPending}
+                  className="cursor-pointer"
+                />
+                <p className="text-xs text-muted-foreground">
+                  上傳 QR Code 圖片（最大 5MB）
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">

@@ -80,10 +80,12 @@ export interface ShareCopyPayload {
 export interface DepositAddressSetting {
   id?: string;
   address: string;
+  qrcode?: string; // QR code 圖片 URL 或 base64
   defaultAddress?: string;
   updatedAt?: string;
 }
 
 export interface DepositAddressPayload {
   address: string;
+  qrcode?: string; // QR code 圖片 URL 或 base64
 }

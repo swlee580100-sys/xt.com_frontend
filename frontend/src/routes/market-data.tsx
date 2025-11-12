@@ -14,7 +14,6 @@ import { RefreshCw, Settings2 } from 'lucide-react';
 import { useMultipleBinancePrices } from '@/hooks/useBinancePrice';
 import { MarketDataCard } from '@/components/market/market-data-card';
 import { MarketDataTable } from '@/components/market/market-data-table';
-import { DataComparison } from '@/components/market/data-comparison';
 import {
   Dialog,
   DialogContent,
@@ -47,16 +46,12 @@ export const MarketDataPage = () => {
     return Array.from(selectedPairs).map(toBinanceSymbol);
   }, [selectedPairs]);
 
-  const [comparisonRefreshKey, setComparisonRefreshKey] = useState(0);
-
   const { data, loading, error, refetch } = useMultipleBinancePrices(selectedSymbols, {
     refreshInterval,
   });
 
   const handleRefresh = () => {
-    void refetch().finally(() => {
-      setComparisonRefreshKey((prev) => prev + 1);
-    });
+    void refetch();
   };
 
   const handleTogglePair = (pair: string) => {
@@ -181,7 +176,6 @@ export const MarketDataPage = () => {
           <TabsList>
             <TabsTrigger value="grid">卡片視圖</TabsTrigger>
             <TabsTrigger value="table">表格視圖</TabsTrigger>
-            <TabsTrigger value="comparison">數據對照</TabsTrigger>
           </TabsList>
 
           <TabsContent value="grid" className="space-y-4">
@@ -232,13 +226,6 @@ export const MarketDataPage = () => {
           </ul>
         </CardContent>
       </Card>
-          </TabsContent>
-
-          <TabsContent value="comparison">
-            <DataComparison
-              refreshToken={comparisonRefreshKey}
-              refreshInterval={refreshInterval}
-            />
           </TabsContent>
         </Tabs>
       )}
