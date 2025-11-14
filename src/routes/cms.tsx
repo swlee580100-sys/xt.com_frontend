@@ -54,11 +54,6 @@ const tabs = [
     description: '維護排行榜展示的數據來源與排版'
   },
   {
-    value: 'trading-performance',
-    label: '交易時長/盈利率管理',
-    description: '維護不同交易時長對應的盈利率配置'
-  },
-  {
     value: 'share-copy',
     label: '分享平台文案設置',
     description: '管理分享按鈕對應的預設與自定義文案'
@@ -163,16 +158,6 @@ const initialLeaderboardFormState: LeaderboardFormState = {
   volume: '0'
 };
 
-type TradingPerformanceFormState = {
-  tradeDuration: string;
-  winRate: string;
-};
-
-const initialTradingPerformanceFormState: TradingPerformanceFormState = {
-  tradeDuration: '1',
-  winRate: '0'
-};
-
 export const CmsPage = () => {
   const { api } = useAuth();
   const queryClient = useQueryClient();
@@ -197,13 +182,6 @@ export const CmsPage = () => {
     ...initialLeaderboardFormState
   }));
   const [leaderboardFormErrors, setLeaderboardFormErrors] = useState<Record<string, string>>({});
-
-  const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
-  const [editingPerformance, setEditingPerformance] = useState<TradingPerformanceEntry | null>(null);
-  const [performanceFormData, setPerformanceFormData] = useState<TradingPerformanceFormState>(() => ({
-    ...initialTradingPerformanceFormState
-  }));
-  const [performanceFormErrors, setPerformanceFormErrors] = useState<Record<string, string>>({});
 
   const [leaderboardFilter, setLeaderboardFilter] = useState<LeaderboardType | 'all'>('all');
   const [shareConfig, setShareConfig] = useState<ShareConfig>(DEFAULT_SHARE_CONFIG);
@@ -235,14 +213,6 @@ export const CmsPage = () => {
   } = useQuery({
     queryKey: ['cms', 'leaderboard'],
     queryFn: () => cmsService.listLeaderboard(api)
-  });
-
-  const {
-    data: tradingPerformance = [],
-    isLoading: tradingPerformanceLoading
-  } = useQuery({
-    queryKey: ['cms', 'trading-performance'],
-    queryFn: () => cmsService.listTradingPerformance(api)
   });
 
   const {
@@ -439,42 +409,6 @@ export const CmsPage = () => {
 
   const isLeaderboardSubmitting =
     createLeaderboardMutation.isPending || updateLeaderboardMutation.isPending;
-
-  const createPerformanceMutation = useMutation({
-    mutationFn: (payload: TradingPerformancePayload) =>
-      cmsService.createTradingPerformance(api, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cms', 'trading-performance'] });
-      setPerformanceDialogOpen(false);
-    },
-    onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || '新增失敗，請稍后再试';
-      setPerformanceFormErrors({ general: message });
-    }
-  });
-
-  const updatePerformanceMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: TradingPerformancePayload }) =>
-      cmsService.updateTradingPerformance(api, id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cms', 'trading-performance'] });
-      setPerformanceDialogOpen(false);
-    },
-    onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || '更新失敗，請稍后再试';
-      setPerformanceFormErrors({ general: message });
-    }
-  });
-
-  const deletePerformanceMutation = useMutation({
-    mutationFn: (id: string) => cmsService.deleteTradingPerformance(api, id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cms', 'trading-performance'] });
-    }
-  });
-
-  const isPerformanceSubmitting =
-    createPerformanceMutation.isPending || updatePerformanceMutation.isPending;
 
   const updateShareConfigMutation = useMutation({
     mutationFn: (payload: UpdateShareConfigDto) => settingsService.updateShareConfig(api, payload),
@@ -775,77 +709,6 @@ export const CmsPage = () => {
     }
   };
 
-  const handlePerformanceDialogOpenChange = (open: boolean) => {
-    setPerformanceDialogOpen(open);
-    if (!open) {
-      setEditingPerformance(null);
-      setPerformanceFormErrors({});
-      setPerformanceFormData(() => ({ ...initialTradingPerformanceFormState }));
-    }
-  };
-
-  const handleCreatePerformance = () => {
-    setEditingPerformance(null);
-    setPerformanceFormErrors({});
-    setPerformanceFormData(() => ({ ...initialTradingPerformanceFormState }));
-    setPerformanceDialogOpen(true);
-  };
-
-  const handleEditPerformance = (entry: TradingPerformanceEntry) => {
-    setEditingPerformance(entry);
-    setPerformanceFormErrors({});
-    setPerformanceFormData({
-      tradeDuration: String(entry.tradeDuration),
-      winRate: entry.winRate.toString()
-    });
-    setPerformanceDialogOpen(true);
-  };
-
-  const validatePerformanceForm = () => {
-    const errors: Record<string, string> = {};
-
-    const duration = Number(performanceFormData.tradeDuration);
-    if (!Number.isInteger(duration) || duration < 1 || duration > 300) {
-      errors.tradeDuration = '交易時長必須是 1~300 的整數（單位：秒）';
-    }
-
-    const winRate = Number(performanceFormData.winRate);
-    if (Number.isNaN(winRate) || winRate < 0 || winRate > 100) {
-      errors.winRate = '盈利率需在 0-100 之間';
-    }
-
-    return errors;
-  };
-
-  const handlePerformanceSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const errors = validatePerformanceForm();
-
-    if (Object.keys(errors).length > 0) {
-      setPerformanceFormErrors(errors);
-      return;
-    }
-
-    const payload: TradingPerformancePayload = {
-      tradeDuration: Number(performanceFormData.tradeDuration),
-      winRate: Number(performanceFormData.winRate)
-    };
-
-    if (editingPerformance) {
-      updatePerformanceMutation.mutate({ id: editingPerformance.id, payload });
-    } else {
-      createPerformanceMutation.mutate(payload);
-    }
-  };
-
-  const handlePerformanceDelete = (entry: TradingPerformanceEntry) => {
-    if (deletePerformanceMutation.isPending) return;
-    const confirmed = window.confirm(`確認刪除交易時長 ${entry.tradeDuration} 秒的配置嗎？`);
-    if (confirmed) {
-      deletePerformanceMutation.mutate(entry.id);
-    }
-  };
-
   const renderTestimonialsTable = () => {
     if (testimonialsLoading) {
       return (
@@ -1099,68 +962,6 @@ export const CmsPage = () => {
                     className="text-destructive hover:text-destructive"
                     onClick={() => handleLeaderboardDelete(entry)}
                     disabled={deleteLeaderboardMutation.isPending}
-                  >
-                    <Trash2 className="mr-1 h-4 w-4" />
-                    刪除
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        </div>
-      </div>
-    );
-  };
-
-  const renderPerformanceTable = () => {
-    if (tradingPerformanceLoading) {
-      return (
-        <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-          正在載入交易時長与盈利率配置...
-        </div>
-      );
-    }
-
-    if (tradingPerformance.length === 0) {
-      return (
-        <div className="flex h-32 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-          暫無交易時長配置，點擊右上角按鈕新增一條吧。
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-4">
-        <div className="rounded-md border overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-                <TableHead className="w-40">交易時長 (秒)</TableHead>
-                <TableHead className="w-32">盈利率 (%)</TableHead>
-              <TableHead className="w-40">更新時間</TableHead>
-              <TableHead className="w-32 text-right">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tradingPerformance.map(entry => (
-              <TableRow key={entry.id}>
-                <TableCell className="font-medium">{entry.tradeDuration}</TableCell>
-                <TableCell>{entry.winRate.toFixed(2)}%</TableCell>
-                  <TableCell className="text-sm text-muted-foreground whitespace-pre-line">
-                    {formatDateTime(entry.updatedAt)}
-                </TableCell>
-                <TableCell className="flex items-center justify-end gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => handleEditPerformance(entry)}>
-                    <Edit2 className="mr-1 h-4 w-4" />
-                    編輯
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => handlePerformanceDelete(entry)}
-                    disabled={deletePerformanceMutation.isPending}
                   >
                     <Trash2 className="mr-1 h-4 w-4" />
                     刪除
@@ -1466,7 +1267,6 @@ export const CmsPage = () => {
           const isTestimonials = tab.value === 'testimonials';
           const isCarousel = tab.value === 'carousel';
           const isLeaderboard = tab.value === 'leaderboard';
-          const isTradingPerformanceTab = tab.value === 'trading-performance';
           const isShareCopy = tab.value === 'share-copy';
           const isDepositAddress = tab.value === 'deposit-address';
 
@@ -1493,11 +1293,6 @@ export const CmsPage = () => {
                       新增排行榜记录
                     </Button>
                   ) : null}
-                  {isTradingPerformanceTab ? (
-                    <Button size="sm" onClick={handleCreatePerformance}>
-                      新增交易時長配置
-                    </Button>
-                  ) : null}
                 </CardHeader>
                 <CardContent>
                   {isTestimonials
@@ -1506,13 +1301,11 @@ export const CmsPage = () => {
                       ? renderCarouselsTable()
                       : isLeaderboard
                         ? renderLeaderboardTable()
-                        : isTradingPerformanceTab
-                          ? renderPerformanceTable()
-                          : isShareCopy
-                            ? renderShareCopyForm()
-                            : isDepositAddress
-                              ? renderDepositAddressForm()
-                          : placeholder}
+                        : isShareCopy
+                          ? renderShareCopyForm()
+                          : isDepositAddress
+                            ? renderDepositAddressForm()
+                            : placeholder}
                 </CardContent>
               </Card>
 
@@ -1877,89 +1670,6 @@ export const CmsPage = () => {
                         </Button>
                         <Button type="submit" disabled={isLeaderboardSubmitting}>
                           {isLeaderboardSubmitting ? '提交中…' : editingLeaderboard ? '保存修改' : '創建'}
-                        </Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              ) : null}
-
-              {isTradingPerformanceTab ? (
-                <Dialog open={performanceDialogOpen} onOpenChange={handlePerformanceDialogOpenChange}>
-                  <DialogContent className="sm:max-w-[420px]">
-                    <form onSubmit={handlePerformanceSubmit} className="space-y-4">
-                      <DialogHeader>
-                        <DialogTitle>
-                          {editingPerformance ? '編輯交易時長配置' : '新增交易時長配置'}
-                        </DialogTitle>
-                      </DialogHeader>
-
-                      {performanceFormErrors.general && (
-                        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                          {performanceFormErrors.general}
-                        </div>
-                      )}
-
-                      <div className="space-y-2">
-                        <Label htmlFor="performance-duration">交易時長 (秒)</Label>
-                        <Input
-                          id="performance-duration"
-                          type="number"
-                          min={1}
-                          max={300}
-                          value={performanceFormData.tradeDuration}
-                          onChange={event =>
-                            setPerformanceFormData(prev => ({
-                              ...prev,
-                              tradeDuration: event.target.value
-                            }))
-                          }
-                          disabled={isPerformanceSubmitting}
-                        />
-                        {performanceFormErrors.tradeDuration ? (
-                          <p className="text-sm text-destructive">
-                            {performanceFormErrors.tradeDuration}
-                          </p>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">可設置 1~300 的整數，單位為秒</p>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="performance-winRate">盈利率 (%)</Label>
-                        <Input
-                          id="performance-winRate"
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={0.01}
-                          value={performanceFormData.winRate}
-                          onChange={event =>
-                            setPerformanceFormData(prev => ({
-                              ...prev,
-                              winRate: event.target.value
-                            }))
-                          }
-                          disabled={isPerformanceSubmitting}
-                        />
-                        {performanceFormErrors.winRate ? (
-                          <p className="text-sm text-destructive">{performanceFormErrors.winRate}</p>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">範圍 0-100，可保留兩位小數</p>
-                        )}
-                      </div>
-
-                      <DialogFooter className="gap-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          disabled={isPerformanceSubmitting}
-                          onClick={() => handlePerformanceDialogOpenChange(false)}
-                        >
-                          取消
-                        </Button>
-                        <Button type="submit" disabled={isPerformanceSubmitting}>
-                          {isPerformanceSubmitting ? '提交中…' : editingPerformance ? '保存修改' : '創建'}
                         </Button>
                       </DialogFooter>
                     </form>

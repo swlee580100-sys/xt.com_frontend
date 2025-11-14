@@ -1,0 +1,173 @@
+/**
+ * Market Session Service
+ * 大小盘系统 API 服务
+ */
+
+import type { AxiosInstance } from 'axios';
+import type {
+  MarketSession,
+  SubMarketCycle,
+  CreateMarketSessionRequest,
+  UpdateMarketSessionRequest,
+  GetMarketSessionsParams,
+  GetCyclesParams,
+  MarketSessionListResponse,
+  CyclesListResponse,
+  StartMarketSessionResponse,
+  StopMarketSessionResponse
+} from '@/types/market-session';
+
+/**
+ * 用户端 API
+ */
+export const marketSessionUserService = {
+  /**
+   * 获取活跃的大盘
+   * GET /api/market-sessions/active
+   */
+  getActiveSessions: async (api: AxiosInstance): Promise<MarketSession[]> => {
+    const response = await api.get<MarketSession[]>('/market-sessions/active');
+    return response.data;
+  },
+
+  /**
+   * 获取大盘详情
+   * GET /api/market-sessions/:id
+   */
+  getSessionDetail: async (api: AxiosInstance, id: string): Promise<MarketSession> => {
+    const response = await api.get<MarketSession>(`/market-sessions/${id}`);
+    return response.data;
+  },
+
+  /**
+   * 获取小盘当前周期
+   * GET /api/market-sessions/sub-markets/:subMarketId/current-cycle
+   */
+  getCurrentCycle: async (api: AxiosInstance, subMarketId: string): Promise<SubMarketCycle> => {
+    const response = await api.get<SubMarketCycle>(
+      `/market-sessions/sub-markets/${subMarketId}/current-cycle`
+    );
+    return response.data;
+  },
+
+  /**
+   * 获取小盘历史周期
+   * GET /api/market-sessions/sub-markets/:subMarketId/cycles
+   */
+  getCycles: async (
+    api: AxiosInstance,
+    subMarketId: string,
+    params?: GetCyclesParams
+  ): Promise<CyclesListResponse> => {
+    const response = await api.get<CyclesListResponse>(
+      `/market-sessions/sub-markets/${subMarketId}/cycles`,
+      { params }
+    );
+    return response.data;
+  }
+};
+
+/**
+ * 管理员 API
+ */
+export const marketSessionAdminService = {
+  /**
+   * 创建大盘
+   * POST /api/admin/market-sessions
+   */
+  createSession: async (
+    api: AxiosInstance,
+    data: CreateMarketSessionRequest
+  ): Promise<MarketSession> => {
+    const response = await api.post<MarketSession>('/admin/market-sessions', data);
+    return response.data;
+  },
+
+  /**
+   * 获取大盘列表
+   * GET /api/admin/market-sessions
+   */
+  getSessions: async (
+    api: AxiosInstance,
+    params?: GetMarketSessionsParams
+  ): Promise<MarketSessionListResponse> => {
+    const response = await api.get<MarketSessionListResponse>('/admin/market-sessions', {
+      params
+    });
+    return response.data;
+  },
+
+  /**
+   * 获取大盘详情
+   * GET /api/admin/market-sessions/:id
+   */
+  getSessionDetail: async (api: AxiosInstance, id: string): Promise<MarketSession> => {
+    const response = await api.get<MarketSession>(`/admin/market-sessions/${id}`);
+    return response.data;
+  },
+
+  /**
+   * 更新大盘
+   * PUT /api/admin/market-sessions/:id
+   */
+  updateSession: async (
+    api: AxiosInstance,
+    id: string,
+    data: UpdateMarketSessionRequest
+  ): Promise<MarketSession> => {
+    const response = await api.put<MarketSession>(`/admin/market-sessions/${id}`, data);
+    return response.data;
+  },
+
+  /**
+   * 删除大盘
+   * DELETE /api/admin/market-sessions/:id
+   */
+  deleteSession: async (api: AxiosInstance, id: string): Promise<{ message: string }> => {
+    const response = await api.delete<{ message: string }>(`/admin/market-sessions/${id}`);
+    return response.data;
+  },
+
+  /**
+   * 开启大盘
+   * POST /api/admin/market-sessions/:id/start
+   */
+  startSession: async (api: AxiosInstance, id: string): Promise<StartMarketSessionResponse> => {
+    const response = await api.post<StartMarketSessionResponse>(
+      `/admin/market-sessions/${id}/start`
+    );
+    return response.data;
+  },
+
+  /**
+   * 关闭大盘
+   * POST /api/admin/market-sessions/:id/stop
+   */
+  stopSession: async (api: AxiosInstance, id: string): Promise<StopMarketSessionResponse> => {
+    const response = await api.post<StopMarketSessionResponse>(`/admin/market-sessions/${id}/stop`);
+    return response.data;
+  },
+
+  /**
+   * 获取小盘历史周期（管理员）
+   * GET /api/admin/market-sessions/sub-markets/:subMarketId/cycles
+   */
+  getCycles: async (
+    api: AxiosInstance,
+    subMarketId: string,
+    params?: GetCyclesParams
+  ): Promise<CyclesListResponse> => {
+    const response = await api.get<CyclesListResponse>(
+      `/admin/market-sessions/sub-markets/${subMarketId}/cycles`,
+      { params }
+    );
+    return response.data;
+  }
+};
+
+export const marketSessionService = {
+  ...marketSessionUserService,
+  admin: marketSessionAdminService
+};
+
+export default marketSessionService;

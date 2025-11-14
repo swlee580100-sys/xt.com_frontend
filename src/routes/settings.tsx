@@ -12,6 +12,7 @@ import { MoreHorizontal, ChevronUp, ChevronDown, Pencil, Trash2, Plus } from 'lu
 import { useAuth } from '@/hooks/useAuth';
 import { settingsService } from '@/services/settings';
 import { adminService } from '@/services/admins';
+import { cmsService } from '@/services/cms';
 import type {
   // UpdateTradingChannelsDto, // 暫時停用 - 交易渠道功能未開放
   // TradingChannel, // 暫時停用 - 交易渠道功能未開放
@@ -19,6 +20,10 @@ import type {
   UpdateIpWhitelistConfigDto,
 } from '@/types/settings';
 import type { Admin, QueryAdminsParams } from '@/types/admin';
+import type {
+  TradingPerformanceEntry,
+  TradingPerformancePayload,
+} from '@/types/cms';
 import { cn } from '@/lib/utils';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -82,6 +87,15 @@ export const SettingsPage = () => {
   });
   const [ipWhitelistError, setIpWhitelistError] = useState<string | null>(null);
   const [ipWhitelistSuccess, setIpWhitelistSuccess] = useState<string | null>(null);
+
+  // 交易時長/盈利率管理狀態
+  const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
+  const [editingPerformance, setEditingPerformance] = useState<TradingPerformanceEntry | null>(null);
+  const [performanceFormData, setPerformanceFormData] = useState({
+    tradeDuration: '0',
+    winRate: '0'
+  });
+  const [performanceFormErrors, setPerformanceFormErrors] = useState<Record<string, string>>({});
 
   // 获取交易渠道設置 - 暫時停用
   // const { data: tradingChannelsData } = useQuery({
@@ -182,6 +196,15 @@ export const SettingsPage = () => {
     }
   }, [adminsData, adminsLoading, adminsError]);
 
+  // 獲取交易時長/盈利率配置
+  const {
+    data: tradingPerformance = [],
+    isLoading: tradingPerformanceLoading
+  } = useQuery({
+    queryKey: ['settings', 'trading-performance'],
+    queryFn: () => cmsService.listTradingPerformance(api)
+  });
+
   // Mutations
   const deleteAdminMutation = useMutation({
     mutationFn: (id: string) => adminService.delete(api, id),
@@ -234,6 +257,42 @@ export const SettingsPage = () => {
       setIpWhitelistError(message);
     },
   });
+
+  // 交易時長/盈利率管理 Mutations
+  const createPerformanceMutation = useMutation({
+    mutationFn: (payload: TradingPerformancePayload) => cmsService.createTradingPerformance(api, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'trading-performance'] });
+      setPerformanceDialogOpen(false);
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.message || error.message || '新增失敗，請稍後再試';
+      setPerformanceFormErrors({ general: message });
+    }
+  });
+
+  const updatePerformanceMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: TradingPerformancePayload }) =>
+      cmsService.updateTradingPerformance(api, id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'trading-performance'] });
+      setPerformanceDialogOpen(false);
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.message || error.message || '更新失敗，請稍後再試';
+      setPerformanceFormErrors({ general: message });
+    }
+  });
+
+  const deletePerformanceMutation = useMutation({
+    mutationFn: (id: string) => cmsService.deleteTradingPerformance(api, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'trading-performance'] });
+    }
+  });
+
+  const isPerformanceSubmitting =
+    createPerformanceMutation.isPending || updatePerformanceMutation.isPending;
 
   // 管理員表格欄位
   const adminColumns: ColumnDef<Admin>[] = [
@@ -370,6 +429,78 @@ export const SettingsPage = () => {
     setIpWhitelistSuccess(null);
   };
 
+  // 交易時長/盈利率管理處理函數
+  const handlePerformanceDialogOpenChange = (open: boolean) => {
+    setPerformanceDialogOpen(open);
+    if (!open) {
+      setEditingPerformance(null);
+      setPerformanceFormErrors({});
+      setPerformanceFormData({ tradeDuration: '0', winRate: '0' });
+    }
+  };
+
+  const handleCreatePerformance = () => {
+    setEditingPerformance(null);
+    setPerformanceFormErrors({});
+    setPerformanceFormData({ tradeDuration: '0', winRate: '0' });
+    setPerformanceDialogOpen(true);
+  };
+
+  const handleEditPerformance = (entry: TradingPerformanceEntry) => {
+    setEditingPerformance(entry);
+    setPerformanceFormErrors({});
+    setPerformanceFormData({
+      tradeDuration: String(entry.tradeDuration),
+      winRate: entry.winRate.toString()
+    });
+    setPerformanceDialogOpen(true);
+  };
+
+  const validatePerformanceForm = () => {
+    const errors: Record<string, string> = {};
+
+    const duration = Number(performanceFormData.tradeDuration);
+    if (!Number.isInteger(duration) || duration < 1 || duration > 300) {
+      errors.tradeDuration = '交易時長必須是 1~300 的整數（單位：秒）';
+    }
+
+    const winRate = Number(performanceFormData.winRate);
+    if (Number.isNaN(winRate) || winRate < 0 || winRate > 100) {
+      errors.winRate = '盈利率需在 0-100 之間';
+    }
+
+    return errors;
+  };
+
+  const handlePerformanceSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const errors = validatePerformanceForm();
+
+    if (Object.keys(errors).length > 0) {
+      setPerformanceFormErrors(errors);
+      return;
+    }
+
+    const payload: TradingPerformancePayload = {
+      tradeDuration: Number(performanceFormData.tradeDuration),
+      winRate: Number(performanceFormData.winRate)
+    };
+
+    if (editingPerformance) {
+      updatePerformanceMutation.mutate({ id: editingPerformance.id, payload });
+    } else {
+      createPerformanceMutation.mutate(payload);
+    }
+  };
+
+  const handlePerformanceDelete = (entry: TradingPerformanceEntry) => {
+    if (deletePerformanceMutation.isPending) return;
+    const confirmed = window.confirm(`確認刪除交易時長 ${entry.tradeDuration} 秒的配置嗎？`);
+    if (confirmed) {
+      deletePerformanceMutation.mutate(entry.id);
+    }
+  };
+
   // 交易渠道處理函數 - 暫時停用
   // const handleUpdateTradingChannels = () => {
   //   updateTradingChannelsMutation.mutate({ channels: tradingChannels });
@@ -403,6 +534,7 @@ export const SettingsPage = () => {
         <TabsList>
           <TabsTrigger value="admin">管理員帳號</TabsTrigger>
           <TabsTrigger value="ip-whitelist">IP白名單</TabsTrigger>
+          <TabsTrigger value="trading-performance">交易時長/盈利率</TabsTrigger>
           {/* 暫時停用 - 交易渠道功能未開放 */}
           {/* <TabsTrigger value="trading">交易渠道</TabsTrigger> */}
           {/* 暫時停用 - 託管模式功能未開放 */}
@@ -774,6 +906,79 @@ export const SettingsPage = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* 交易時長/盈利率管理 */}
+        <TabsContent value="trading-performance">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>交易時長/盈利率管理</CardTitle>
+                  <CardDescription>
+                    配置不同交易時長對應的盈利率，用於系統交易邏輯
+                  </CardDescription>
+                </div>
+                <Button onClick={handleCreatePerformance}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  新增配置
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {tradingPerformanceLoading ? (
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  正在載入交易時長配置...
+                </div>
+              ) : tradingPerformance.length === 0 ? (
+                <div className="flex h-32 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                  暫無交易時長配置，點擊右上角按鈕新增一條吧。
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-md border overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-40">交易時長 (秒)</TableHead>
+                          <TableHead className="w-32">盈利率 (%)</TableHead>
+                          <TableHead className="w-40">更新時間</TableHead>
+                          <TableHead className="w-32 text-right">操作</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tradingPerformance.map(entry => (
+                          <TableRow key={entry.id}>
+                            <TableCell className="font-medium">{entry.tradeDuration}</TableCell>
+                            <TableCell>{entry.winRate.toFixed(2)}%</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {new Date(entry.updatedAt).toLocaleString('zh-TW')}
+                            </TableCell>
+                            <TableCell className="flex items-center justify-end gap-2">
+                              <Button size="sm" variant="ghost" onClick={() => handleEditPerformance(entry)}>
+                                <Pencil className="mr-1 h-4 w-4" />
+                                編輯
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => handlePerformanceDelete(entry)}
+                                disabled={deletePerformanceMutation.isPending}
+                              >
+                                <Trash2 className="mr-1 h-4 w-4" />
+                                刪除
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Delete Admin Confirmation Dialog */}
@@ -808,6 +1013,88 @@ export const SettingsPage = () => {
         onOpenChange={setEditAdminDialogOpen}
         isCreating={isCreatingAdmin}
       />
+
+      {/* Trading Performance Dialog */}
+      <Dialog open={performanceDialogOpen} onOpenChange={handlePerformanceDialogOpenChange}>
+        <DialogContent className="sm:max-w-[420px]">
+          <form onSubmit={handlePerformanceSubmit} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>
+                {editingPerformance ? '編輯交易時長配置' : '新增交易時長配置'}
+              </DialogTitle>
+            </DialogHeader>
+
+            {performanceFormErrors.general && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {performanceFormErrors.general}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="performance-duration">交易時長 (秒)</Label>
+              <Input
+                id="performance-duration"
+                type="number"
+                min={1}
+                max={300}
+                value={performanceFormData.tradeDuration}
+                onChange={event =>
+                  setPerformanceFormData(prev => ({
+                    ...prev,
+                    tradeDuration: event.target.value
+                  }))
+                }
+                disabled={isPerformanceSubmitting}
+              />
+              {performanceFormErrors.tradeDuration ? (
+                <p className="text-sm text-destructive">
+                  {performanceFormErrors.tradeDuration}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">可設置 1~300 的整數，單位為秒</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="performance-winRate">盈利率 (%)</Label>
+              <Input
+                id="performance-winRate"
+                type="number"
+                min={0}
+                max={100}
+                step={0.01}
+                value={performanceFormData.winRate}
+                onChange={event =>
+                  setPerformanceFormData(prev => ({
+                    ...prev,
+                    winRate: event.target.value
+                  }))
+                }
+                disabled={isPerformanceSubmitting}
+              />
+              {performanceFormErrors.winRate ? (
+                <p className="text-sm text-destructive">{performanceFormErrors.winRate}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">範圍 0-100，可保留兩位小數</p>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={isPerformanceSubmitting}
+                onClick={() => handlePerformanceDialogOpenChange(false)}
+              >
+                取消
+              </Button>
+              <Button type="submit" disabled={isPerformanceSubmitting}>
+                {isPerformanceSubmitting ? '提交中…' : editingPerformance ? '保存修改' : '創建'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

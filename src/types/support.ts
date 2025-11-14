@@ -1,3 +1,64 @@
+/**
+ * Support Customer Service Chat System Types
+ * Based on Customer Support Chat System API Documentation
+ */
+
+// 基础枚举类型
+export enum ConversationStatus {
+  ACTIVE = 'ACTIVE',
+  CLOSED = 'CLOSED'
+}
+
+export enum SenderType {
+  USER = 'USER',
+  ADMIN = 'ADMIN',
+  SYSTEM = 'SYSTEM'
+}
+
+export enum MessageType {
+  TEXT = 'TEXT',
+  IMAGE = 'IMAGE',
+  SYSTEM = 'SYSTEM'
+}
+
+// 基础接口
+export interface ChatConversation {
+  id: string;
+  userId: string;
+  userName: string;
+  status: ConversationStatus;
+  assignedAdminId?: string | null;
+  assignedAdminName?: string | null;
+  userUnreadCount: number;
+  adminUnreadCount: number;
+  lastMessageAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  messages?: ChatMessage[];
+  user?: ChatUser;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderType: SenderType;
+  senderName: string;
+  messageType: MessageType;
+  content: string;
+  metadata?: Record<string, any> | null;
+  isRead?: boolean;
+  createdAt: string;
+}
+
+export interface ChatUser {
+  id: string;
+  displayName: string;
+  email: string;
+  avatar?: string;
+}
+
+// 原有接口（保持向后兼容）
 export interface SupportMessage {
   id: string;
   sender: 'USER' | 'ADMIN';
@@ -29,3 +90,162 @@ export interface SupportConversationStatusPayload {
   status: SupportConversationStatus;
 }
 
+// API 响应类型
+export interface ConversationResponse extends ChatConversation {}
+
+export interface MessageResponse {
+  data: ChatMessage[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface InitiateConversationResponse {
+  conversation: ChatConversation;
+}
+
+export interface ConversationsListResponse {
+  data: ChatConversation[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface UploadImageResponse {
+  imageUrl: string;
+  filename: string;
+  size: number;
+  mimeType: string;
+}
+
+export interface UnreadCountResponse {
+  total: number;
+  byConversation: Array<{
+    conversationId: string;
+    count: number;
+  }>;
+}
+
+export interface BaseResponse {
+  message?: string;
+}
+
+// 请求体类型
+export interface SendMessageRequest {
+  conversationId: string;
+  messageType: MessageType;
+  content: string;
+  metadata?: Record<string, any> | null;
+}
+
+export interface UpdateMessageReadRequest {
+  conversationId: string;
+}
+
+export interface ConversationsRequestParams {
+  status?: ConversationStatus;
+  adminId?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface GetUserConversationsParams {
+  limit?: number;
+}
+
+export interface GetMessagesParams {
+  conversationId: string;
+  limit?: number;
+  offset?: number;
+}
+
+// WebSocket 事件类型
+export interface JoinConversationEvent {
+  event: 'joinConversation';
+  data: {
+    conversationId: string;
+  };
+}
+
+export interface SendMessageEvent {
+  event: 'sendMessage';
+  data: {
+    conversationId: string;
+    messageType: MessageType;
+    content: string;
+    metadata?: Record<string, any> | null;
+  };
+}
+
+export interface MarkAsReadEvent {
+  event: 'markAsRead';
+  data: {
+    conversationId: string;
+  };
+}
+
+export interface TypingEvent {
+  event: 'typing';
+  data: {
+    conversationId: string;
+  };
+}
+
+export type ClientSocketEvent =
+  | JoinConversationEvent
+  | SendMessageEvent
+  | MarkAsReadEvent
+  | TypingEvent;
+
+// Server Socket 事件类型
+export interface NewMessageEvent {
+  event: 'newMessage';
+  data: ChatMessage;
+}
+
+export interface MessageReadEvent {
+  event: 'messageRead';
+  data: {
+    conversationId: string;
+    readBy: SenderType;
+  };
+}
+
+export interface UserTypingEvent {
+  event: 'userTyping';
+  data: {
+    conversationId: string;
+    userName: string;
+  };
+}
+
+export interface ConversationStatusChangedEvent {
+  event: 'conversationStatusChanged';
+  data: {
+    conversationId: string;
+    status: ConversationStatus;
+  };
+}
+
+export interface AdminAssignedEvent {
+  event: 'adminAssigned';
+  data: {
+    conversationId: string;
+    adminId: string;
+    adminName: string;
+  };
+}
+
+export type ServerSocketEvent =
+  | NewMessageEvent
+  | MessageReadEvent
+  | UserTypingEvent
+  | ConversationStatusChangedEvent
+  | AdminAssignedEvent;
+
+// 错误响应类型
+export interface ApiError {
+  statusCode?: number;
+  message: string;
+  error?: string;
+}
