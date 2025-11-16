@@ -38,18 +38,21 @@ export const AdminChat: React.FC = () => {
 
     try {
       setIsLoading(true);
+      // 不传 status 参数，获取所有对话
       const response = await supportService.admin.getConversations(api, {
-        status,
         page: 1,
         limit: 50
       });
-      setConversations(response.data || []);
-    } catch (error) {
-      console.error('Failed to fetch conversations:', error);
+      // 后端返回的是 { conversations: [], total: 0, ... }
+      const conversationsList = response.conversations || response.data || [];
+      setConversations(conversationsList);
+    } catch (error: any) {
+      console.error('❌ Failed to fetch conversations:', error);
+      console.error('Error details:', error.response?.data);
       setConversations([]);
       toast({
         title: '错误',
-        description: '无法获取对话列表',
+        description: error.response?.data?.message || '无法获取对话列表',
         variant: 'destructive'
       });
     } finally {
@@ -63,8 +66,9 @@ export const AdminChat: React.FC = () => {
 
     try {
       const response = await supportService.admin.getUnreadCount(api, adminUser.id);
-      setUnreadCount(response.total);
-    } catch (error) {
+      // 后端返回的是 totalUnread
+      setUnreadCount(response.totalUnread || response.total || 0);
+    } catch (error: any) {
       console.error('Failed to fetch unread count:', error);
     }
   }, [api, adminUser]);
@@ -76,28 +80,34 @@ export const AdminChat: React.FC = () => {
     if (!api) return;
 
     try {
-      // 获取对话详情和消息
-      const conversationDetail = await supportService.admin.getConversationDetail(api, conversation.id);
-      setSelectedConversation(conversationDetail);
-
-      const messageResponse = await supportService.admin.getMessages(api, {
-        conversationId: conversation.id,
-        limit: 100
-      });
-      setMessages(messageResponse.data || []);
-
-      // 如果对话未分配，接管对话
+      // 如果对话未分配，先接管对话
       if (!conversation.assignedAdminId) {
         await supportService.admin.assignToAdmin(api, conversation.id);
         // 更新对话列表
         fetchConversations(activeTab === 'active' ? ConversationStatus.ACTIVE : ConversationStatus.CLOSED);
       }
-    } catch (error) {
+
+      // 获取对话详情（推荐方式1：对话详情接口会返回所有消息）
+      const conversationDetail = await supportService.admin.getConversationDetail(api, conversation.id);
+      setSelectedConversation(conversationDetail);
+
+      // 从对话详情中获取消息列表
+      if (conversationDetail.messages && conversationDetail.messages.length > 0) {
+        setMessages(conversationDetail.messages);
+      } else {
+        // 如果对话详情中没有消息，则单独获取（方式2）
+        const messageResponse = await supportService.admin.getMessages(api, {
+          conversationId: conversationDetail.id,
+          limit: 100
+        });
+        setMessages(messageResponse.messages || messageResponse.data || []);
+      }
+    } catch (error: any) {
       console.error('Failed to load conversation:', error);
       setMessages([]);
       toast({
         title: '错误',
-        description: '无法加载对话详情',
+        description: error.response?.data?.message || '无法加载对话详情',
         variant: 'destructive'
       });
     }
@@ -145,7 +155,9 @@ export const AdminChat: React.FC = () => {
 
   // 初始化 Socket.IO
   useEffect(() => {
-    if (!api || !adminUser || !accessToken) return;
+    if (!api || !adminUser || !accessToken) {
+      return;
+    }
 
     // 创建 Socket.IO 服务，传递管理员信息
     const socket = new SupportSocketService(
@@ -169,26 +181,24 @@ export const AdminChat: React.FC = () => {
 
     // 监听连接事件
     socket.on('connected', () => {
-      console.log('✅ Admin chat socket connected');
+      // Socket connected
     });
 
     socket.on('disconnected', () => {
-      console.log('🔌 Admin chat socket disconnected');
+      // Socket disconnected
     });
 
     socket.on('error', (error) => {
-      console.warn('⚠️ Admin chat socket error:', error);
+      console.error('Socket error:', error);
     });
 
     socket.on('reconnected', () => {
-      console.log('🔄 Admin chat socket reconnected');
       // 重连后刷新对话列表
       fetchConversations(activeTab === 'active' ? ConversationStatus.ACTIVE : ConversationStatus.CLOSED);
     });
 
     // 监听业务事件
     socket.on('newMessage', (message: ChatMessage) => {
-      console.log('📨 Received new message:', message);
       if (selectedConversationRef.current && message.conversationId === selectedConversationRef.current.id) {
         setMessages(prev => [...prev, message]);
       }
@@ -197,7 +207,6 @@ export const AdminChat: React.FC = () => {
     });
 
     socket.on('conversationStatusChanged', (data: { conversationId: string; status: string }) => {
-      console.log('🔄 Conversation status changed:', data);
       if (selectedConversationRef.current && data.conversationId === selectedConversationRef.current.id) {
         setSelectedConversation(prev => prev ? { ...prev, status: data.status as any } : null);
       }
@@ -205,17 +214,14 @@ export const AdminChat: React.FC = () => {
     });
 
     socket.on('adminAssigned', (data: { conversationId: string; adminId: string; adminName: string }) => {
-      console.log('👤 Admin assigned:', data);
       fetchConversations(activeTab === 'active' ? ConversationStatus.ACTIVE : ConversationStatus.CLOSED);
     });
 
     socket.on('userTyping', (data: { senderType: string; senderName: string }) => {
-      console.log('⌨️ User typing:', data);
       // TODO: 显示"正在输入"指示器
     });
 
     socket.on('messageRead', (data: { conversationId: string; readerType: string }) => {
-      console.log('✓✓ Messages read:', data);
       // TODO: 更新消息已读状态
     });
 
@@ -230,7 +236,19 @@ export const AdminChat: React.FC = () => {
 
   useEffect(() => {
     if (socketService && selectedConversation) {
-      socketService.joinConversation(selectedConversation.id);
+      // 等待 socket 连接后再加入
+      const joinConv = () => {
+        if (socketService.getConnectionStatus()) {
+          socketService.joinConversation(selectedConversation.id);
+        } else {
+          // 监听连接成功事件后再加入
+          const unsubscribe = socketService.on('connected', () => {
+            socketService.joinConversation(selectedConversation.id);
+            unsubscribe();
+          });
+        }
+      };
+      joinConv();
     }
   }, [socketService, selectedConversation]);
 
@@ -256,6 +274,8 @@ export const AdminChat: React.FC = () => {
 
   const getStatusBadge = (status: ConversationStatus) => {
     switch (status) {
+      case ConversationStatus.PENDING:
+        return <Badge variant="outline">待处理</Badge>;
       case ConversationStatus.ACTIVE:
         return <Badge variant="default">进行中</Badge>;
       case ConversationStatus.CLOSED:
@@ -272,12 +292,24 @@ export const AdminChat: React.FC = () => {
           <h1 className="text-3xl font-bold">客服聊天</h1>
           <p className="text-muted-foreground">处理用户咨询和支持请求</p>
         </div>
-        {unreadCount > 0 && (
-          <div className="flex items-center space-x-2">
-            <AlertCircle className="w-5 h-5 text-orange-500" />
-            <Badge variant="destructive">{unreadCount} 条未读消息</Badge>
-          </div>
-        )}
+        <div className="flex items-center space-x-2">
+          {unreadCount > 0 && (
+            <>
+              <AlertCircle className="w-5 h-5 text-orange-500" />
+              <Badge variant="destructive">{unreadCount} 条未读消息</Badge>
+            </>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              console.log('🔄 Fetching ALL conversations (no status filter)');
+              fetchConversations(undefined);
+            }}
+          >
+            刷新全部
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100%-120px)]">
@@ -302,9 +334,24 @@ export const AdminChat: React.FC = () => {
 
               <TabsContent value="active" className="flex-1 overflow-y-auto mt-2">
                 <div className="space-y-2">
-                  {conversations
-                    .filter(conv => conv.status === ConversationStatus.ACTIVE)
-                    .map(conversation => (
+                  {(() => {
+                    // 进行中的对话包括 PENDING 和 ACTIVE 状态
+                    const activeConversations = conversations.filter(conv =>
+                      conv.status === ConversationStatus.PENDING ||
+                      conv.status === ConversationStatus.ACTIVE
+                    );
+
+                    if (activeConversations.length === 0) {
+                      return (
+                        <div className="text-center py-8 text-muted-foreground">
+                          {conversations.length === 0 ? '暂无对话' : '暂无进行中的对话'}
+                        </div>
+                      );
+                    }
+
+                    return activeConversations;
+                  })()
+                    .map?.(conversation => (
                       <div
                         key={conversation.id}
                         onClick={() => selectConversation(conversation)}
@@ -343,9 +390,20 @@ export const AdminChat: React.FC = () => {
 
               <TabsContent value="closed" className="flex-1 overflow-y-auto mt-2">
                 <div className="space-y-2">
-                  {conversations
-                    .filter(conv => conv.status === ConversationStatus.CLOSED)
-                    .map(conversation => (
+                  {(() => {
+                    const closedConversations = conversations.filter(conv => conv.status === ConversationStatus.CLOSED);
+
+                    if (closedConversations.length === 0) {
+                      return (
+                        <div className="text-center py-8 text-muted-foreground">
+                          {conversations.length === 0 ? '暂无对话' : '暂无已关闭的对话'}
+                        </div>
+                      );
+                    }
+
+                    return closedConversations;
+                  })()
+                    .map?.(conversation => (
                       <div
                         key={conversation.id}
                         onClick={() => selectConversation(conversation)}
@@ -401,35 +459,41 @@ export const AdminChat: React.FC = () => {
               <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
                 {/* 消息列表 */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                  {messages.map(message => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.senderType === SenderType.ADMIN ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                        message.senderType === SenderType.ADMIN
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
-                      }`}>
-                        {message.messageType === MessageType.IMAGE ? (
-                          <img
-                            src={message.content}
-                            alt="Chat image"
-                            className="max-w-full rounded"
-                          />
-                        ) : (
-                          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                        )}
-                        <p className={`text-xs mt-1 ${
+                  {messages
+                    .filter(message =>
+                      // 过滤掉系统消息（如"管理员已加入对话"）
+                      message.senderType !== SenderType.SYSTEM &&
+                      message.messageType !== MessageType.SYSTEM
+                    )
+                    .map(message => (
+                      <div
+                        key={message.id}
+                        className={`flex ${message.senderType === SenderType.ADMIN ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div className={`max-w-[70%] rounded-lg px-4 py-2 ${
                           message.senderType === SenderType.ADMIN
-                            ? 'text-primary-foreground/70'
-                            : 'text-muted-foreground'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted'
                         }`}>
-                          {formatTime(message.createdAt)}
-                        </p>
+                          {message.messageType === MessageType.IMAGE ? (
+                            <img
+                              src={message.content}
+                              alt="Chat image"
+                              className="max-w-full rounded"
+                            />
+                          ) : (
+                            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                          )}
+                          <p className={`text-xs mt-1 ${
+                            message.senderType === SenderType.ADMIN
+                              ? 'text-primary-foreground/70'
+                              : 'text-muted-foreground'
+                          }`}>
+                            {formatTime(message.createdAt)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
 
                 {/* 输入区域 */}

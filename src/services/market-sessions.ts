@@ -17,6 +17,14 @@ import type {
   StopMarketSessionResponse
 } from '@/types/market-session';
 
+const unwrapData = <T>(payload: T | { data: T }): T => {
+  let current: any = payload;
+  while (current && typeof current === 'object' && 'data' in current) {
+    current = current.data;
+  }
+  return current as T;
+};
+
 /**
  * 用户端 API
  */
@@ -91,10 +99,10 @@ export const marketSessionAdminService = {
     api: AxiosInstance,
     params?: GetMarketSessionsParams
   ): Promise<MarketSessionListResponse> => {
-    const response = await api.get<MarketSessionListResponse>('/admin/market-sessions', {
+    const response = await api.get<MarketSessionListResponse | { data: MarketSessionListResponse }>('/admin/market-sessions', {
       params
     });
-    return response.data;
+    return unwrapData<MarketSessionListResponse>(response.data);
   },
 
   /**
@@ -102,8 +110,13 @@ export const marketSessionAdminService = {
    * GET /api/admin/market-sessions/:id
    */
   getSessionDetail: async (api: AxiosInstance, id: string): Promise<MarketSession> => {
-    const response = await api.get<MarketSession>(`/admin/market-sessions/${id}`);
-    return response.data;
+    const response = await api.get<
+      MarketSession |
+      { data: MarketSession } |
+      { data: { marketSession: MarketSession } }
+    >(`/admin/market-sessions/${id}`);
+    const data = unwrapData<MarketSession | { marketSession: MarketSession }>(response.data);
+    return (data as { marketSession?: MarketSession }).marketSession ?? (data as MarketSession);
   },
 
   /**

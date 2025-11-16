@@ -214,7 +214,8 @@ export class SupportSocketService {
     userName?: string | null
   ) {
     this.token = token ?? null;
-    this.endpoint = this.isAdmin ? '/admin/chat' : '/chat';
+    // 统一使用 /support namespace
+    this.endpoint = '/support';
     // Socket.IO 使用 http/https 协议，会自动升级
     this.baseUrl = (baseUrl ?? appConfig.wsUrl ?? window.location.origin).replace(/^ws/, 'http').replace(/\/$/, '');
     this.currentUserId = userId ?? null;
@@ -439,16 +440,17 @@ export class SupportSocketService {
 
     this.joinedConversations.add(conversationId);
 
+    const joinData = {
+      conversationId,
+      userType: this.isAdmin ? 'admin' : 'user',
+    };
+
     this.socket.emit(
       'support:join',
-      {
-        conversationId,
-        userType: this.isAdmin ? 'admin' : 'user',
-      },
+      joinData,
       (response: any) => {
-        console.log('✅ Join conversation response:', response);
         if (response?.error) {
-          console.error('❌ Failed to join conversation:', response.error);
+          console.error('Failed to join conversation:', response.error);
         }
       }
     );

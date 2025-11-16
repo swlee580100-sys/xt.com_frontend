@@ -77,7 +77,7 @@ export const TransactionsPage = () => {
     status?: string;
     accountType?: string;
     username?: string;
-    managedMode?: boolean;
+    // managedMode?: boolean;
   }>({});
   
   // 無限滾動狀態（用於小屏幕）
@@ -101,7 +101,7 @@ export const TransactionsPage = () => {
     status?: string;
     accountType?: string;
     username?: string;
-    managedMode?: boolean;
+    // managedMode?: boolean;
   }>({});
 
   // 檢測屏幕寬度
@@ -122,7 +122,7 @@ export const TransactionsPage = () => {
     status: filters.status as any,
     accountType: filters.accountType as any,
     username: filters.username || undefined,
-    managedMode: filters.managedMode,
+    // managedMode: filters.managedMode,
   };
 
   // Fetch transactions
@@ -162,7 +162,7 @@ export const TransactionsPage = () => {
       status: filters.status as any,
       accountType: filters.accountType as any,
       username: filters.username || undefined,
-      managedMode: filters.managedMode,
+      // managedMode: filters.managedMode,
     };
 
     try {
@@ -337,17 +337,6 @@ export const TransactionsPage = () => {
       },
       meta: {
         minWidth: '95px',
-      },
-    },
-    {
-      accessorKey: 'isManaged',
-      header: '託管',
-      cell: ({ row }) => {
-        const isManaged = row.original.isManaged;
-        if (isManaged) {
-          return <Badge variant="default">託管</Badge>;
-        }
-        return <span className="text-sm text-muted-foreground">-</span>;
       },
     },
     {
@@ -533,25 +522,7 @@ export const TransactionsPage = () => {
                 <SelectItem value="REAL">真實帳戶</SelectItem>
               </SelectContent>
             </Select>
-            <Select
-              value={filters.managedMode === undefined ? 'all' : filters.managedMode ? 'true' : 'false'}
-              onValueChange={(value) => {
-                setFilters({
-                  ...filters,
-                  managedMode: value === 'all' ? undefined : value === 'true',
-                });
-              }}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue placeholder="全部託管" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部託管</SelectItem>
-                <SelectItem value="true">託管</SelectItem>
-                <SelectItem value="false">非託管</SelectItem>
-              </SelectContent>
-            </Select>
-            {(filters.assetType || filters.direction || filters.status || filters.accountType || filters.username || filters.managedMode !== undefined) && (
+            {(filters.assetType || filters.direction || filters.status || filters.accountType || filters.username) && (
               <Button
                 variant="outline"
                 onClick={() => setFilters({})}
@@ -873,28 +844,6 @@ export const TransactionsPage = () => {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="filter-managedMode">託管</Label>
-              <Select
-                value={tempFilters.managedMode === undefined ? 'all' : tempFilters.managedMode ? 'true' : 'false'}
-                onValueChange={(value) => {
-                  setTempFilters({
-                    ...tempFilters,
-                    managedMode: value === 'all' ? undefined : value === 'true',
-                  });
-                }}
-              >
-                <SelectTrigger id="filter-managedMode">
-                  <SelectValue placeholder="全部託管" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部託管</SelectItem>
-                  <SelectItem value="true">託管</SelectItem>
-                  <SelectItem value="false">非託管</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="pt-2">
               <Button
                 variant="outline"
@@ -929,4 +878,3 @@ export const TransactionsPage = () => {
     </>
   );
 };
-

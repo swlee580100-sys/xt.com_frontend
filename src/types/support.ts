@@ -5,8 +5,9 @@
 
 // 基础枚举类型
 export enum ConversationStatus {
-  ACTIVE = 'ACTIVE',
-  CLOSED = 'CLOSED'
+  PENDING = 'PENDING',  // 待处理（用户发起，未分配给管理员）
+  ACTIVE = 'ACTIVE',    // 进行中（已分配给管理员）
+  CLOSED = 'CLOSED'     // 已关闭
 }
 
 export enum SenderType {
@@ -94,7 +95,8 @@ export interface SupportConversationStatusPayload {
 export interface ConversationResponse extends ChatConversation {}
 
 export interface MessageResponse {
-  data: ChatMessage[];
+  messages: ChatMessage[]; // 后端实际返回的字段名
+  data?: ChatMessage[]; // 兼容旧版本
   total: number;
   hasMore: boolean;
 }
@@ -104,7 +106,8 @@ export interface InitiateConversationResponse {
 }
 
 export interface ConversationsListResponse {
-  data: ChatConversation[];
+  conversations: ChatConversation[]; // 后端实际返回的字段名
+  data?: ChatConversation[]; // 兼容旧版本
   total: number;
   page: number;
   pageSize: number;
@@ -119,8 +122,10 @@ export interface UploadImageResponse {
 }
 
 export interface UnreadCountResponse {
-  total: number;
-  byConversation: Array<{
+  totalUnread: number; // 后端实际返回的字段名
+  conversationCount: number; // 有未读消息的对话数量
+  total?: number; // 兼容旧版本
+  byConversation?: Array<{
     conversationId: string;
     count: number;
   }>;
@@ -154,7 +159,7 @@ export interface GetUserConversationsParams {
 }
 
 export interface GetMessagesParams {
-  conversationId: string;
+  conversationId?: string; // 可选,不传则获取当前用户的所有消息
   limit?: number;
   offset?: number;
 }
