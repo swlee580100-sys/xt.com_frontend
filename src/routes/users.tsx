@@ -109,11 +109,14 @@ export const UsersPage = () => {
       accessorKey: 'displayName',
       header: '顯示名稱',
     },
-    // 暂时注释掉手机号列，以后可能会用到
-    // {
-    //   accessorKey: 'phoneNumber',
-    //   header: '手机号',
-    // },
+    {
+      accessorKey: 'phoneNumber',
+      header: '手機號碼',
+      cell: ({ row }) => <div>{row.getValue('phoneNumber') || '-'}</div>,
+      meta: {
+        minWidth: '120px',
+      },
+    },
     {
       accessorKey: 'roles',
       header: '角色',

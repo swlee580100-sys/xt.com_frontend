@@ -43,12 +43,25 @@ export function EditMarketSessionDialog({
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  type UiInitialControl = 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' | 'INDIVIDUAL';
+  const mapResultToUi = (r?: MarketResult | null): UiInitialControl => {
+    if (r === 'WIN') return 'ALL_WIN';
+    if (r === 'LOSE') return 'ALL_LOSE';
+    return 'INDIVIDUAL';
+  };
+  const mapUiToResult = (u: UiInitialControl): MarketResult => {
+    if (u === 'ALL_WIN') return 'WIN';
+    if (u === 'ALL_LOSE') return 'LOSE';
+    return 'PENDING'; // RANDOM / INDIVIDUAL 都記為 PENDING
+  };
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     initialResult: 'PENDING' as MarketResult,
     actualResult: undefined as MarketResult | undefined
   });
+  const [uiInitialControl, setUiInitialControl] = useState<UiInitialControl>('INDIVIDUAL');
 
   // 初始化表單數據
   useEffect(() => {
@@ -60,6 +73,7 @@ export function EditMarketSessionDialog({
         initialResult: session.initialResult,
         actualResult: session.actualResult || undefined
       });
+      setUiInitialControl(mapResultToUi(session.initialResult));
     } else {
       // 建立模式 - 設定預設值
       setFormData({
@@ -68,6 +82,7 @@ export function EditMarketSessionDialog({
         initialResult: 'PENDING',
         actualResult: undefined
       });
+      setUiInitialControl('INDIVIDUAL');
     }
   }, [session, open]);
 
@@ -105,7 +120,7 @@ export function EditMarketSessionDialog({
         const updateData: UpdateMarketSessionRequest = {
           name: formData.name,
           description: formData.description || undefined,
-          initialResult: formData.initialResult,
+          initialResult: mapUiToResult(uiInitialControl),
           // 編輯時不再提供「實際結果」欄位，後端不需更新此欄
         };
 
@@ -124,7 +139,7 @@ export function EditMarketSessionDialog({
           description: formData.description || undefined,
           startTime: start.toISOString(),
           endTime: end.toISOString(),
-          initialResult: formData.initialResult
+          initialResult: mapUiToResult(uiInitialControl)
         };
 
         await marketSessionService.admin.createSession(api, createData);
@@ -183,22 +198,21 @@ export function EditMarketSessionDialog({
 
             {/* 資產類型：已移除（建立大盤不需要資產類型） */}
 
-            {/* 初始結果 */}
+            {/* 初始結果（與全局輸贏控制一致的選項） */}
             <div>
-              <Label htmlFor="initialResult">預設輸贏結果</Label>
+              <Label htmlFor="initialResult">預設輸贏結果（與全局輸贏控制一致）</Label>
               <Select
-                value={formData.initialResult}
-                onValueChange={value =>
-                  setFormData(prev => ({ ...prev, initialResult: value as MarketResult }))
-                }
+                value={uiInitialControl}
+                onValueChange={(val) => setUiInitialControl(val as UiInitialControl)}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="選擇預設輸贏結果" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="PENDING">待定</SelectItem>
-                  <SelectItem value="WIN">贏</SelectItem>
-                  <SelectItem value="LOSE">輸</SelectItem>
+                  <SelectItem value="ALL_WIN">全贏</SelectItem>
+                  <SelectItem value="ALL_LOSE">全輸</SelectItem>
+                  <SelectItem value="RANDOM">隨機</SelectItem>
+                  <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
                 </SelectContent>
               </Select>
             </div>

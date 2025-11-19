@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
-import { marketSessionService } from '@/services/market-sessions';
+import marketSessionService, { getOrderStatsBulk } from '@/services/market-sessions';
 import { transactionService } from '@/services/transactions';
 import TradeUpdatesSocket from '@/services/trade-updates';
 import type {
@@ -51,11 +51,13 @@ export function OpeningSettingsPage() {
   const adminId = user?.id ?? null;
 
   const [sessions, setSessions] = useState<MarketSession[]>([]);
+  const [allSessions, setAllSessions] = useState<MarketSession[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
   const [selectedSession, setSelectedSession] = useState<MarketSession | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<MarketSessionStatus | undefined>('ACTIVE');
+  // 三分頁：待開盤(PENDING) / 進行中(ACTIVE) / 已閉盤(CLOSED = COMPLETED + CANCELED)
+  const [statusFilter, setStatusFilter] = useState<'PENDING' | 'ACTIVE' | 'CLOSED'>('ACTIVE');
   const [currentPage, setCurrentPage] = useState(1);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -79,6 +81,19 @@ export function OpeningSettingsPage() {
     useState<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' | null>(null);
   const [desiredOutcomes, setDesiredOutcomes] = useState<Record<string, 'WIN' | 'LOSE'>>({});
   const [recentFinished, setRecentFinished] = useState<Transaction[]>([]);
+  // 後端訂單統計（若接口可用）：sessionId -> { pendingCount, settledCount }
+  const [orderStats, setOrderStats] = useState<Record<string, { pendingCount: number; settledCount: number }>>({});
+
+  const mapResultToControl = useCallback(
+    (result?: any): 'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' => {
+      if (result === 'WIN') return 'ALL_WIN';
+      if (result === 'LOSE') return 'ALL_LOSE';
+      return 'INDIVIDUAL';
+    },
+    []
+  );
+  // 僅在首次進入頁面時同步一次全局輸贏控制
+  const hasSyncedGlobalOnceRef = useRef(false);
 
   const allowedStatuses = new Set<MarketSessionStatus>(['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELED']);
   const filterActiveTrades = useCallback(
@@ -93,21 +108,30 @@ export function OpeningSettingsPage() {
 
     try {
       setIsLoading(true);
-      const params: GetMarketSessionsParams = {
-        page: currentPage,
-        limit: 20
-      };
-      if (statusFilter === 'ACTIVE') {
-        params.status = 'ACTIVE';
+      const params: GetMarketSessionsParams = { page: currentPage, limit: 20 };
+      // 伺服器僅支援 PENDING/ACTIVE/COMPLETED/CANCELED 四種狀態；「已閉盤」改由前端合併 COMPLETED + CANCELED
+      if (statusFilter === 'PENDING' || statusFilter === 'ACTIVE') {
+        params.status = statusFilter as unknown as MarketSessionStatus;
       }
 
       const response = await marketSessionService.admin.getSessions(api, params);
       const all = (response.marketSessions || []).filter(session => allowedStatuses.has(session.status));
+      setAllSessions(all);
       const filtered =
         statusFilter === 'ACTIVE'
           ? all.filter(s => s.status === 'ACTIVE')
-          : all.filter(s => s.status !== 'ACTIVE');
+          : statusFilter === 'PENDING'
+          ? all.filter(s => s.status === 'PENDING')
+          : all.filter(s => s.status === 'COMPLETED' || s.status === 'CANCELED');
       setSessions(filtered);
+      // 僅在首次進入頁面時，依當前進行中的大盤「預設輸贏結果」同步一次全局輸贏控制
+      if (!hasSyncedGlobalOnceRef.current) {
+        const active = all.find(s => s.status === 'ACTIVE');
+        if (active?.initialResult) {
+          setGlobalOutcomeControl(mapResultToControl(active.initialResult));
+        }
+        hasSyncedGlobalOnceRef.current = true;
+      }
       setPagination({
         page: response.page,
         pageSize: response.pageSize,
@@ -144,6 +168,43 @@ export function OpeningSettingsPage() {
     fetchActiveCount();
   }, [fetchSessions, fetchActiveCount]);
 
+  // 依本地交易建立「進行中訂單數 / 已結束訂單數」映射（僅做前端估算，當後端 stats 可用時會被覆蓋）
+  const getRemainingMs = (expiry?: string | null) =>
+    expiry ? new Date(expiry).getTime() - Date.now() : -1;
+  const activeCountMap = new Map<string, number>();
+  for (const t of activeRealTrades) {
+    const sid = (t as any).marketSessionId as string | undefined;
+    if (!sid) continue;
+    const isActive = t.status === 'PENDING' && getRemainingMs(t.expiryTime) > 0;
+    if (!isActive) continue;
+    activeCountMap.set(sid, (activeCountMap.get(sid) || 0) + 1);
+  }
+  const finishedCountMap = new Map<string, number>();
+  for (const t of recentFinished) {
+    const sid = (t as any).marketSessionId as string | undefined;
+    if (!sid) continue;
+    finishedCountMap.set(sid, (finishedCountMap.get(sid) || 0) + 1);
+  }
+
+  // 取得後端統計（若 404 則不覆蓋，保留本地計數）
+  useEffect(() => {
+    (async () => {
+      if (!api || sessions.length === 0) return;
+      try {
+        const ids = sessions.map(s => s.id);
+        const stats = await getOrderStatsBulk(api, ids);
+        if (stats && Object.keys(stats).length > 0) {
+          setOrderStats(stats);
+        }
+      } catch (err: any) {
+        // 若 404，代表後端未提供，忽略使用本地計數
+        if (err?.response?.status !== 404) {
+          // 其餘錯誤不打擾使用者
+        }
+      }
+    })();
+  }, [api, sessions]);
+
   const computeExitPrice = (trade: Transaction, outcome: 'WIN' | 'LOSE'): number => {
     const base = trade.entryPrice;
     const delta = Math.max(0.0001, Math.abs(trade.spread || 0) || Math.max(0.5, base * 0.001));
@@ -163,7 +224,26 @@ export function OpeningSettingsPage() {
         status: 'PENDING',
         accountType: 'REAL'
       });
-      setActiveRealTrades(filterActiveTrades(response.data || []));
+      const list = filterActiveTrades(response.data || []);
+      setActiveRealTrades(list);
+      // 依據當前全局控制，為尚未設定期望值的新訂單套預設（不覆蓋已設定）
+      const mode = globalOutcomeControl;
+      if (mode !== 'INDIVIDUAL') {
+        setDesiredOutcomes(prev => {
+          const next = { ...prev };
+          const now = Date.now();
+          for (const t of list) {
+            if (next[t.id]) continue;
+            const remain = new Date(t.expiryTime).getTime() - now;
+            if (remain <= 0) continue;
+            next[t.id] =
+              mode === 'ALL_WIN' ? 'WIN' :
+              mode === 'ALL_LOSE' ? 'LOSE' :
+              Math.random() < 0.5 ? 'WIN' : 'LOSE';
+          }
+          return next;
+        });
+      }
     } catch (error: any) {
       console.error('Failed to fetch real trades:', error);
       toast({
@@ -174,7 +254,7 @@ export function OpeningSettingsPage() {
     } finally {
       setIsTradeLoading(false);
     }
-  }, [api, toast, filterActiveTrades]);
+  }, [api, toast, filterActiveTrades, globalOutcomeControl]);
 
   useEffect(() => {
     fetchActiveTrades();
@@ -193,6 +273,23 @@ export function OpeningSettingsPage() {
           accountType: 'REAL'
         });
         const incoming = filterActiveTrades(response.data || []);
+        // 依目前全局控制為缺少設定的訂單填入預設（不覆蓋已設定）
+        if (globalOutcomeControl !== 'INDIVIDUAL') {
+          const nowApply = Date.now();
+          setDesiredOutcomes(prev => {
+            const next = { ...prev };
+            for (const t of incoming) {
+              if (next[t.id]) continue;
+              const remainMs = new Date(t.expiryTime).getTime() - nowApply;
+              if (remainMs <= 0) continue;
+              next[t.id] =
+                globalOutcomeControl === 'ALL_WIN' ? 'WIN' :
+                globalOutcomeControl === 'ALL_LOSE' ? 'LOSE' :
+                Math.random() < 0.5 ? 'WIN' : 'LOSE';
+            }
+            return next;
+          });
+        }
         // 收集本輪「已到期」但仍在 PENDING 列表中的訂單，放到本地已結束池
         const nowTsCollect = Date.now();
         const justFinished = incoming.filter(t => new Date(t.expiryTime).getTime() - nowTsCollect <= 0);
@@ -298,6 +395,25 @@ export function OpeningSettingsPage() {
       const trade = data?.transaction;
       if (!trade) return;
       setActiveRealTrades(prev => filterActiveTrades([trade, ...prev]));
+      // 全局控制生效時，新加入訂單自動套用期望輸贏（不覆蓋已手動設定）
+      if (trade.status === 'PENDING' && trade.accountType === 'REAL') {
+        const mode = globalOutcomeControl;
+        if (mode !== 'INDIVIDUAL') {
+          const remain = new Date(trade.expiryTime).getTime() - Date.now();
+          if (remain > 0) {
+            setDesiredOutcomes(prev => {
+              if (prev[trade.id]) return prev;
+              return {
+                ...prev,
+                [trade.id]:
+                  mode === 'ALL_WIN' ? 'WIN' :
+                  mode === 'ALL_LOSE' ? 'LOSE' :
+                  Math.random() < 0.5 ? 'WIN' : 'LOSE'
+              };
+            });
+          }
+        }
+      }
     });
 
     const upsertTrade = (trade?: Transaction) => {
@@ -444,7 +560,7 @@ export function OpeningSettingsPage() {
     if (!api) return;
 
     // 僅允許同時一個進行中的大盤
-    const alreadyActive = sessions.some(s => s.status === 'ACTIVE' && s.id !== session.id);
+    const alreadyActive = allSessions.some(s => s.status === 'ACTIVE' && s.id !== session.id);
     if (alreadyActive) {
       toast({
         title: '無法開啟',
@@ -455,17 +571,31 @@ export function OpeningSettingsPage() {
     }
 
     try {
-      const result = await marketSessionService.admin.startSession(api, session.id);
+      // 某些後端需要在重新開啟時提供 initialResult，否則可能回 400
+      const result = await marketSessionService.admin.startSession(api, session.id, {
+        initialResult: session.initialResult,
+        restart: true
+      });
       toast({
         title: '成功',
         description: `大盤已開啟，建立了 ${result.subMarketsCreated} 個小盤`
       });
+      // 在「開啟」當下，同步全局輸贏控制為該大盤的預設輸贏結果（不影響歷史）
+      if (result.marketSession?.initialResult) {
+        setGlobalOutcomeControl(mapResultToControl(result.marketSession.initialResult));
+      }
+      // 切換到「進行中」分頁並刷新列表
+      setStatusFilter('ACTIVE');
+      setCurrentPage(1);
       fetchSessions();
     } catch (error: any) {
       console.error('Failed to start session:', error);
       toast({
         title: '錯誤',
-        description: error.response?.data?.message || '開啟大盤失敗',
+        description:
+          error?.response?.data?.message ||
+          error?.message ||
+          '開啟大盤失敗：後端可能要求使用「重新開啟」參數或僅允許 PENDING 狀態開啟',
         variant: 'destructive'
       });
     }
@@ -565,30 +695,32 @@ export function OpeningSettingsPage() {
           <p className="text-muted-foreground mt-2">管理進行中的訂單並控制玩家輸贏</p>
         </div>
         <div className="flex gap-2 items-center">
-          <div className="hidden sm:flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">全局輸贏控制</span>
-            <Select
-              value={globalOutcomeControl}
-              onValueChange={(val: any) => {
-                if (val === 'INDIVIDUAL') {
-                  setGlobalOutcomeControl('INDIVIDUAL');
-                  return;
-                }
-                setPendingGlobalMode(val);
-                setConfirmGlobalOpen(true);
-              }}
-            >
-              <SelectTrigger className="h-9 w-[150px]">
-                <SelectValue placeholder="個別控制" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL_LOSE">全輸（全部關閉）</SelectItem>
-                <SelectItem value="ALL_WIN">全贏（全部開啟）</SelectItem>
-                <SelectItem value="RANDOM">隨機</SelectItem>
-                <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {statusFilter === 'ACTIVE' && activeCount > 0 && (
+            <div className="hidden sm:flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">全局輸贏控制</span>
+              <Select
+                value={globalOutcomeControl}
+                onValueChange={(val: any) => {
+                  if (val === 'INDIVIDUAL') {
+                    setGlobalOutcomeControl('INDIVIDUAL');
+                    return;
+                  }
+                  setPendingGlobalMode(val);
+                  setConfirmGlobalOpen(true);
+                }}
+              >
+                <SelectTrigger className="h-9 w-[150px]">
+                  <SelectValue placeholder="個別控制" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL_LOSE">全輸（全部關閉）</SelectItem>
+                  <SelectItem value="ALL_WIN">全贏（全部開啟）</SelectItem>
+                  <SelectItem value="RANDOM">隨機</SelectItem>
+                  <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <Button onClick={() => { fetchSessions(); fetchActiveCount(); }} variant="outline" disabled={isLoading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             重新整理
@@ -621,7 +753,7 @@ export function OpeningSettingsPage() {
             <Button
               variant={statusFilter === 'PENDING' ? 'default' : 'outline'}
               onClick={() => {
-                setStatusFilter(prev => (prev === 'PENDING' ? undefined : 'PENDING'));
+                setStatusFilter('PENDING');
                 setCurrentPage(1);
               }}
               size="sm"
@@ -631,12 +763,22 @@ export function OpeningSettingsPage() {
             <Button
               variant={statusFilter === 'ACTIVE' ? 'default' : 'outline'}
               onClick={() => {
-                setStatusFilter(prev => (prev === 'ACTIVE' ? undefined : 'ACTIVE'));
+                setStatusFilter('ACTIVE');
                 setCurrentPage(1);
               }}
               size="sm"
             >
               進行中
+            </Button>
+            <Button
+              variant={statusFilter === 'CLOSED' ? 'default' : 'outline'}
+              onClick={() => {
+                setStatusFilter('CLOSED');
+                setCurrentPage(1);
+              }}
+              size="sm"
+            >
+              已閉盤
             </Button>
           </div>
             </CardHeader>
@@ -650,45 +792,69 @@ export function OpeningSettingsPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                    <TableHead>名稱</TableHead>
-                    <TableHead className="w-[120px]">進行中訂單</TableHead>
-                    <TableHead className="w-[120px]">已結束訂單</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
+                        {statusFilter === 'PENDING' ? (
+                          <>
+                            <TableHead>名稱</TableHead>
+                            <TableHead>描述</TableHead>
+                            <TableHead className="w-[120px]">預設輸贏</TableHead>
+                            <TableHead className="text-right">操作</TableHead>
+                          </>
+                        ) : statusFilter === 'ACTIVE' ? (
+                          <>
+                            <TableHead>名稱</TableHead>
+                            <TableHead>開盤時間</TableHead>
+                            <TableHead className="w-[120px]">進行中訂單</TableHead>
+                            <TableHead className="w-[120px]">已結束訂單</TableHead>
+                            <TableHead className="text-right">操作</TableHead>
+                          </>
+                        ) : (
+                          <>
+                            <TableHead>名稱</TableHead>
+                            <TableHead>開盤時間</TableHead>
+                            <TableHead>結束時間</TableHead>
+                            {/* 已閉盤不需要進行中訂單欄位，只顯示已結束訂單 */}
+                            <TableHead className="w-[120px]">已結束訂單</TableHead>
+                            <TableHead className="text-right">操作</TableHead>
+                          </>
+                        )}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                   {sessions.map(session => (
                     <TableRow key={session.id}>
-                      <TableCell className="font-medium">
-                        {session.name}
-                        {session.description && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {session.description}
-                              </div>
-                        )}
-                            </TableCell>
-                      <TableCell className="w-[120px]">0</TableCell>
-                      <TableCell className="w-[120px]">0</TableCell>
-                      <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => navigate({ to: '/opening-settings/$sessionId', params: { sessionId: session.id } })}
-                                >
-                                  查看訂單
-                                </Button>
-                          {session.status !== 'ACTIVE' && (
-                            <>
-                                <Button
-                                  variant="outline"
+                      {statusFilter === 'PENDING' ? (
+                        <>
+                          <TableCell className="font-medium">{session.name}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {session.description || '-'}
+                          </TableCell>
+                          <TableCell className="w-[120px]">
+                            {session.initialResult === 'WIN'
+                              ? '全贏'
+                              : session.initialResult === 'LOSE'
+                              ? '全輸'
+                              : '個別控制'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  navigate({ to: '/opening-settings/$sessionId', params: { sessionId: session.id } })
+                                }
+                              >
+                                查看訂單
+                              </Button>
+                              <Button
+                                variant="outline"
                                 size="sm"
                                 onClick={() => handleStartSession(session)}
-                                disabled={sessions.some(s => s.status === 'ACTIVE')}
+                                disabled={activeCount > 0}
                               >
                                 <Play className="w-4 h-4 mr-1" />
-                                開啟
-                                </Button>
+                                啟用
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -703,20 +869,68 @@ export function OpeningSettingsPage() {
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
-                            </>
-                          )}
-                          {session.status === 'ACTIVE' && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleStopSession(session)}
-                            >
-                              <Square className="w-4 h-4 mr-1" />
-                              關閉
-                            </Button>
-                          )}
-                      </div>
-                      </TableCell>
+                            </div>
+                          </TableCell>
+                        </>
+                      ) : statusFilter === 'ACTIVE' ? (
+                        <>
+                          <TableCell className="font-medium">
+                            {session.name}
+                            {session.description && (
+                              <div className="text-xs text-muted-foreground mt-1">{session.description}</div>
+                            )}
+                          </TableCell>
+                          {/* 開盤時間 = 啟用時間（startTime） */}
+                          <TableCell className="text-sm">{formatTime(session.startTime)}</TableCell>
+                          <TableCell className="w-[120px]">
+                            {orderStats[session.id]?.pendingCount ??
+                              activeCountMap.get(session.id) ?? 0}
+                          </TableCell>
+                          <TableCell className="w-[120px]">
+                            {orderStats[session.id]?.settledCount ??
+                              finishedCountMap.get(session.id) ?? 0}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              {/* 進行中僅提供閉盤 */}
+                              <Button variant="outline" size="sm" onClick={() => handleStopSession(session)}>
+                                <Square className="w-4 h-4 mr-1" />
+                                閉盤
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </>
+                      ) : (
+                        <>
+                          <TableCell className="font-medium">
+                            {session.name}
+                            {session.description && (
+                              <div className="text-xs text-muted-foreground mt-1">{session.description}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">{formatTime(session.startTime)}</TableCell>
+                          <TableCell className="text-sm">{formatTime(session.endTime)}</TableCell>
+                          <TableCell className="w-[120px]">
+                            {orderStats[session.id]?.settledCount ??
+                              finishedCountMap.get(session.id) ?? 0}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              {session.status !== 'ACTIVE' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    navigate({ to: '/opening-settings/$sessionId', params: { sessionId: session.id } })
+                                  }
+                                >
+                                  查看訂單
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1079,8 +1293,10 @@ const ActiveRealTradesSection = memo(
       <CardContent>
         {isLoading ? (
           <div className="text-center py-8 text-muted-foreground">載入真實交易中...</div>
-        ) : trades.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">暫無進行中的真實交易</div>
+        ) : filteredTrades.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            {durationFilter === 'FINISHED' ? '暫無已結束的真實交易' : '暫無進行中的真實交易'}
+          </div>
         ) : (
           <div className="border rounded-lg overflow-x-auto">
             <Table>

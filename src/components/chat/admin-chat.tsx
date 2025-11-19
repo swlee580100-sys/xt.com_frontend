@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/useToast';
 import { useAuth } from '@/hooks/useAuth';
 import { supportService, SupportSocketService } from '@/services/support-chat';
+import { appConfig } from '@/config/env';
 import type { ChatConversation, ChatMessage } from '@/types/support';
 import { ConversationStatus, MessageType, SenderType } from '@/types/support';
 
@@ -180,31 +181,26 @@ export const AdminChat: React.FC = () => {
     }
   }, [inputMessage, selectedConversation, api, toast]);
 
-  // 关闭对话
+  // 关闭对话（處理完畢）
   const closeConversation = useCallback(async () => {
     if (!api || !selectedConversation) return;
 
+    const ok = window.confirm('此動作不可復原，且會永久刪除本次聊天記錄。\n確定要將此對話標記為「處理完畢」並刪除記錄嗎？');
+    if (!ok) return;
+
     try {
       await supportService.admin.closeConversation(api, selectedConversation.id);
-      // 更新選中的對話狀態
-      const updatedConversation = { ...selectedConversation, status: ConversationStatus.CLOSED };
-      setSelectedConversation(updatedConversation);
-      // 更新對話列表中的該對話狀態
-      setConversations(prev => 
-        prev.map(conv => 
-          conv.id === selectedConversation.id 
-            ? { ...conv, status: ConversationStatus.CLOSED }
-            : conv
-        )
-      );
-      // 更新對話列表（不傳 status 參數，獲取所有對話）
-      await fetchConversations(undefined);
-      // 切換到處理完畢分頁
-      setActiveTab('closed');
+      // 將對話自列表移除（左側僅顯示未處理）
+      setConversations(prev => prev.filter(conv => conv.id !== selectedConversation.id));
+      // 清空右側選中內容
+      setSelectedConversation(null);
+      setMessages([]);
+      // 更新未讀統計
+      await fetchUnreadCount();
     } catch (error) {
       console.error('Failed to close conversation:', error);
     }
-  }, [api, selectedConversation, fetchConversations]);
+  }, [api, selectedConversation, fetchUnreadCount]);
 
   // 初始化 Socket.IO
   useEffect(() => {
@@ -360,6 +356,67 @@ export const AdminChat: React.FC = () => {
     }
   };
 
+  // 從訊息內容提取圖片路徑或 URL（應對 "[Image: /uploads/xxx.jpg]" 這種格式）
+  const extractImagePath = (raw?: string | null): string | undefined => {
+    if (!raw) return undefined;
+    const value = String(raw).trim();
+    // 1) 嘗試匹配 http/https 絕對網址
+    const abs = value.match(/https?:\/\/[^\s\]]+/i);
+    if (abs && abs[0]) return abs[0];
+    // 2) 嘗試匹配以 /uploads 或 /files 開頭的相對路徑
+    const rel = value.match(/\/(uploads|files|static)\/[^\s\]]+/i);
+    if (rel && rel[0]) return rel[0];
+    // 3) 嘗試解析 "[Image: /uploads/xxx]" 或 "Image: /uploads/xxx"
+    const label = value.match(/image:\s*(\/[^\]\s]+)/i);
+    if (label && label[1]) return label[1];
+    // 4) 若本身就是乾淨路徑（無空白/括號），直接回傳
+    if (/^[^\s\[\]]+\.(png|jpe?g|gif|webp|svg)$/i.test(value) || value.startsWith('/')) {
+      return value;
+    }
+    return undefined;
+  };
+
+  // 解析聊天圖片的主要地址（優先以 API 的 origin 作為基底）
+  const resolveImageUrl = (raw?: string | null): string | undefined => {
+    const extracted = extractImagePath(raw);
+    const value = extracted ?? raw ?? '';
+    if (!value) return undefined;
+    // 已是絕對路徑
+    if (/^https?:\/\//i.test(value)) return value;
+    try {
+      // 優先使用 API URL 的 origin 作為基底（避免相對於 /app 的錯誤）
+      const apiBase = appConfig.apiUrl || '';
+      let originBase: string;
+      if (/^https?:\/\//i.test(apiBase)) {
+        const u = new URL(apiBase);
+        originBase = `${u.protocol}//${u.host}`;
+      } else {
+        // 例如 '/api' 這類 path-base，則使用當前頁面 origin
+        originBase = window.location.origin;
+      }
+      // 去除重複的斜線
+      const normalized = value.startsWith('/') ? value : `/${value}`;
+      return `${originBase}${normalized}`;
+    } catch {
+      // 兜底：相對於當前頁面的相對路徑
+      return value;
+    }
+  };
+  // 備用地址（以當前頁面的 origin 作為基底）
+  const resolveAltImageUrl = (raw?: string | null): string | undefined => {
+    const extracted = extractImagePath(raw);
+    const value = extracted ?? raw ?? '';
+    if (!value) return undefined;
+    if (/^https?:\/\//i.test(value)) return undefined; // 絕對路徑無需備用
+    const normalized = value.startsWith('/') ? value : `/${value}`;
+    return `${window.location.origin}${normalized}`;
+  };
+  const brokenPlaceholder =
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="100%" height="100%" fill="#f2f2f2"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#888" font-size="12">圖片載入失敗</text></svg>`
+    );
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -397,125 +454,64 @@ export const AdminChat: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex-1 overflow-hidden flex flex-col min-h-0">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col min-h-0">
-              <TabsList className="grid w-full grid-cols-2 flex-shrink-0">
-                <TabsTrigger value="active" className="text-sm">
-                  進行中
-                </TabsTrigger>
-                <TabsTrigger value="closed" className="text-sm">
-                  處理完畢
-                </TabsTrigger>
-              </TabsList>
+            <div className="flex-1 overflow-y-auto mt-2 min-h-0">
+              <div className="space-y-2">
+                {(() => {
+                  // 僅顯示未處理（PENDING/ACTIVE）
+                  const activeConversations = conversations.filter(conv =>
+                    conv.status === ConversationStatus.PENDING ||
+                    conv.status === ConversationStatus.ACTIVE
+                  );
 
-              <TabsContent value="active" className="flex-1 overflow-y-auto mt-2 min-h-0">
-                <div className="space-y-2">
-                  {(() => {
-                    // 进行中的对话包括 PENDING 和 ACTIVE 状态
-                    const activeConversations = conversations.filter(conv =>
-                      conv.status === ConversationStatus.PENDING ||
-                      conv.status === ConversationStatus.ACTIVE
+                  if (activeConversations.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-muted-foreground">
+                        {conversations.length === 0 ? '暫無對話' : '目前沒有未處理的對話'}
+                      </div>
                     );
+                  }
 
-                    if (activeConversations.length === 0) {
-                      return (
-                        <div className="text-center py-8 text-muted-foreground">
-                          {conversations.length === 0 ? '暫無對話' : '暫無進行中的對話'}
-                        </div>
-                      );
-                    }
-
-                    return activeConversations;
-                  })()
-                    .map?.(conversation => (
-                      <div
-                        key={conversation.id}
-                        onClick={() => selectConversation(conversation)}
-                        className={`relative p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
-                          selectedConversation?.id === conversation.id ? 'bg-accent' : ''
-                        }`}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-2">
-                              <User className="w-4 h-4" />
-                              <span className="font-medium">{conversation.userName}</span>
-                              {conversation.assignedAdminName && (
-                                <Badge variant="outline" className="text-xs">
-                                  {conversation.assignedAdminName}
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暫無訊息'}
-                            </p>
+                  return activeConversations;
+                })()
+                  .map?.(conversation => (
+                    <div
+                      key={conversation.id}
+                      onClick={() => selectConversation(conversation)}
+                      className={`relative p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
+                        selectedConversation?.id === conversation.id ? 'bg-accent' : ''
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <User className="w-4 h-4" />
+                            <span className="font-medium">{conversation.userName}</span>
+                            {conversation.assignedAdminName && (
+                              <Badge variant="outline" className="text-xs">
+                                {conversation.assignedAdminName}
+                              </Badge>
+                            )}
                           </div>
-                          <div className="flex flex-col items-end space-y-1">
-                            {getStatusBadge(conversation.status)}
-                          </div>
-                          {conversation.adminUnreadCount > 0 && (
-                            <span 
-                              className="absolute bottom-1 right-1 flex min-w-[16px] h-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white z-10 shadow-sm"
-                              style={{ backgroundColor: '#ef4444', color: '#ffffff' }}
-                            >
-                              {conversation.adminUnreadCount > 99 ? '99+' : conversation.adminUnreadCount}
-                            </span>
-                          )}
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暫無訊息'}
+                          </p>
                         </div>
+                        <div className="flex flex-col items-end space-y-1">
+                          {getStatusBadge(conversation.status)}
+                        </div>
+                        {conversation.adminUnreadCount > 0 && (
+                          <span 
+                            className="absolute bottom-1 right-1 flex min-w-[16px] h-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white z-10 shadow-sm"
+                            style={{ backgroundColor: '#ef4444', color: '#ffffff' }}
+                          >
+                            {conversation.adminUnreadCount > 99 ? '99+' : conversation.adminUnreadCount}
+                          </span>
+                        )}
                       </div>
-                    ))}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="closed" className="flex-1 overflow-y-auto mt-2 min-h-0">
-                <div className="space-y-2">
-                  {(() => {
-                    const closedConversations = conversations.filter(conv => conv.status === ConversationStatus.CLOSED);
-
-                    if (closedConversations.length === 0) {
-                      return (
-                        <div className="text-center py-8 text-muted-foreground">
-                          {conversations.length === 0 ? '暫無對話' : '暫無處理完畢的對話'}
-                        </div>
-                      );
-                    }
-
-                    return closedConversations;
-                  })()
-                    .map?.(conversation => (
-                      <div
-                        key={conversation.id}
-                        onClick={() => selectConversation(conversation)}
-                        className={`relative p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
-                          selectedConversation?.id === conversation.id ? 'bg-accent' : ''
-                        }`}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-2">
-                              <User className="w-4 h-4" />
-                              <span className="font-medium">{conversation.userName}</span>
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暫無訊息'}
-                            </p>
-                          </div>
-                          <div className="flex flex-col items-end space-y-1">
-                            {getStatusBadge(conversation.status)}
-                          </div>
-                          {conversation.adminUnreadCount > 0 && (
-                            <span 
-                              className="absolute bottom-1 right-1 flex min-w-[16px] h-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white z-10 shadow-sm"
-                              style={{ backgroundColor: '#ef4444', color: '#ffffff' }}
-                            >
-                              {conversation.adminUnreadCount > 99 ? '99+' : conversation.adminUnreadCount}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </TabsContent>
-            </Tabs>
+                    </div>
+                  ))}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -578,9 +574,22 @@ export const AdminChat: React.FC = () => {
                             }`}>
                               {message.messageType === MessageType.IMAGE ? (
                                 <img
-                                  src={message.content}
+                                  src={resolveImageUrl(message.content)}
+                                  data-alt-src={resolveAltImageUrl(message.content)}
                                   alt="Chat image"
                                   className="max-w-full rounded"
+                                  onError={(e) => {
+                                    const el = e.currentTarget as HTMLImageElement;
+                                    const tried = (el as any)._triedAlt || false;
+                                    const alt = el.getAttribute('data-alt-src') || undefined;
+                                    if (!tried && alt && el.src !== alt) {
+                                      (el as any)._triedAlt = true;
+                                      el.src = alt;
+                                    } else {
+                                      el.src = brokenPlaceholder;
+                                      el.removeAttribute('onerror' as any);
+                                    }
+                                  }}
                                 />
                               ) : (
                                 <p className="text-sm whitespace-pre-wrap">{message.content}</p>

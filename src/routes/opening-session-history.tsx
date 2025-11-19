@@ -110,12 +110,12 @@ export function OpeningSessionHistoryPage() {
                 </p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">預設輸贏結果</p>
-                <p className="text-lg font-medium mt-1">{session.initialResult}</p>
+                <p className="text-sm text-muted-foreground">開始時間（開盤）</p>
+                <p className="text-lg font-medium mt-1">{formatDateTime(session.startTime)}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">實際結果</p>
-                <p className="text-lg font-medium mt-1">{session.actualResult ?? '-'}</p>
+                <p className="text-sm text-muted-foreground">結束時間（閉盤）</p>
+                <p className="text-lg font-medium mt-1">{formatDateTime(session.endTime)}</p>
               </div>
             </div>
           ) : (
