@@ -22,8 +22,7 @@ import { CmsPage } from '@/routes/cms';
 import { SettingsPage } from '@/routes/settings';
 import { CustomerServicePage } from '@/routes/customer-service';
 import { OpeningSettingsPage } from '@/routes/opening-settings';
-import MarketSessionsPage from '@/routes/market-sessions';
-import MarketSessionDetailPage from '@/routes/market-session-detail';
+import OpeningSessionHistoryPage from '@/routes/opening-session-history';
 import { useAuth } from '@/hooks/useAuth';
 
 const rootRoute = createRootRouteWithContext<{ auth: ReturnType<typeof useAuth> }>()({
@@ -99,6 +98,12 @@ const openingSettingsRoute = createRoute({
   component: OpeningSettingsPage
 });
 
+const openingSettingsDetailRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: '/opening-settings/$sessionId',
+  component: OpeningSessionHistoryPage
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/settings',
@@ -109,18 +114,6 @@ const customerServiceRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/customer-service',
   component: CustomerServicePage
-});
-
-const marketSessionsRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: '/market-sessions',
-  component: MarketSessionsPage
-});
-
-const marketSessionDetailRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: '/market-sessions/$sessionId',
-  component: MarketSessionDetailPage
 });
 
 const loginRoute = createRoute({
@@ -143,8 +136,7 @@ const appRoutes = appLayoutRoute.addChildren([
   operatorsRoute,
   operatorDetailRoute,
   openingSettingsRoute,
-  marketSessionsRoute,
-  marketSessionDetailRoute,
+  openingSettingsDetailRoute,
   customerServiceRoute,
   cmsRoute,
   settingsRoute

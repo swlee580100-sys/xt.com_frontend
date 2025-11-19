@@ -1,6 +1,6 @@
 /**
  * Edit Market Session Dialog
- * 编辑/创建大盘对话框
+ * 編輯/建立大盤對話框
  */
 
 import { useState, useEffect } from 'react';
@@ -46,45 +46,32 @@ export function EditMarketSessionDialog({
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    startTime: '',
-    endTime: '',
     initialResult: 'PENDING' as MarketResult,
-    actualResult: undefined as MarketResult | undefined,
-    assetType: 'BTC/USDT'
+    actualResult: undefined as MarketResult | undefined
   });
 
-  // 初始化表单数据
+  // 初始化表單數據
   useEffect(() => {
     if (session) {
-      // 编辑模式
+      // 編輯模式
       setFormData({
         name: session.name,
         description: session.description || '',
-        startTime: formatDateTimeLocal(session.startTime),
-        endTime: formatDateTimeLocal(session.endTime),
         initialResult: session.initialResult,
-        actualResult: session.actualResult || undefined,
-        assetType: session.assetType || 'BTC/USDT'
+        actualResult: session.actualResult || undefined
       });
     } else {
-      // 创建模式 - 设置默认值
-      const now = new Date();
-      const start = new Date(now.getTime() + 60 * 60 * 1000); // 1小时后
-      const end = new Date(start.getTime() + 3 * 60 * 60 * 1000); // 3小时时长
-
+      // 建立模式 - 設定預設值
       setFormData({
         name: '',
         description: '',
-        startTime: formatDateTimeLocal(start.toISOString()),
-        endTime: formatDateTimeLocal(end.toISOString()),
         initialResult: 'PENDING',
-        actualResult: undefined,
-        assetType: 'BTC/USDT'
+        actualResult: undefined
       });
     }
   }, [session, open]);
 
-  // 格式化日期时间为 datetime-local 输入格式
+  // 格式化日期時間為 datetime-local 輸入格式
   const formatDateTimeLocal = (isoString: string): string => {
     const date = new Date(isoString);
     const year = date.getFullYear();
@@ -95,34 +82,16 @@ export function EditMarketSessionDialog({
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
-  // 提交表单
+  // 提交表單
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!api) return;
 
-    // 验证
+    // 驗證
     if (!formData.name.trim()) {
       toast({
-        title: '错误',
-        description: '请输入大盘名称',
-        variant: 'destructive'
-      });
-      return;
-    }
-
-    if (!formData.startTime || !formData.endTime) {
-      toast({
-        title: '错误',
-        description: '请选择开盘和结束时间',
-        variant: 'destructive'
-      });
-      return;
-    }
-
-    if (new Date(formData.endTime) <= new Date(formData.startTime)) {
-      toast({
-        title: '错误',
-        description: '结束时间必须晚于开盘时间',
+        title: '錯誤',
+        description: '請輸入大盤名稱',
         variant: 'destructive'
       });
       return;
@@ -136,33 +105,32 @@ export function EditMarketSessionDialog({
         const updateData: UpdateMarketSessionRequest = {
           name: formData.name,
           description: formData.description || undefined,
-          startTime: new Date(formData.startTime).toISOString(),
-          endTime: new Date(formData.endTime).toISOString(),
           initialResult: formData.initialResult,
-          actualResult: formData.actualResult,
-          assetType: formData.assetType
+          // 編輯時不再提供「實際結果」欄位，後端不需更新此欄
         };
 
         await marketSessionService.admin.updateSession(api, session.id, updateData);
         toast({
           title: '成功',
-          description: '大盘已更新'
+          description: '大盤已更新'
         });
       } else {
-        // 创建
+        // 建立
+        // 後端需要時間欄位，但 UI 不再要求，預設使用現在時間 + 3 小時
+        const start = new Date();
+        const end = new Date(start.getTime() + 3 * 60 * 60 * 1000);
         const createData: CreateMarketSessionRequest = {
           name: formData.name,
           description: formData.description || undefined,
-          startTime: new Date(formData.startTime).toISOString(),
-          endTime: new Date(formData.endTime).toISOString(),
-          initialResult: formData.initialResult,
-          assetType: formData.assetType
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+          initialResult: formData.initialResult
         };
 
         await marketSessionService.admin.createSession(api, createData);
         toast({
           title: '成功',
-          description: '大盘已创建'
+          description: '大盤已建立'
         });
       }
 
@@ -170,8 +138,8 @@ export function EditMarketSessionDialog({
     } catch (error: any) {
       console.error('Failed to save market session:', error);
       toast({
-        title: '错误',
-        description: error.response?.data?.message || '保存失败',
+        title: '錯誤',
+        description: error.response?.data?.message || '儲存失敗',
         variant: 'destructive'
       });
     } finally {
@@ -183,19 +151,19 @@ export function EditMarketSessionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{session ? '编辑大盘' : '创建大盘'}</DialogTitle>
+          <DialogTitle>{session ? '編輯大盤' : '建立大盤'}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
-            {/* 大盘名称 */}
+            {/* 大盤名稱 */}
             <div>
-              <Label htmlFor="name">大盘名称 *</Label>
+              <Label htmlFor="name">大盤名稱 *</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="例如：2025-01-14 早盘"
+                placeholder="例如：2025-01-14 早盤"
                 required
               />
             </div>
@@ -207,55 +175,17 @@ export function EditMarketSessionDialog({
                 id="description"
                 value={formData.description}
                 onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="大盘描述（可选）"
+                placeholder="大盤描述（選填）"
               />
             </div>
 
-            {/* 时间范围 */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="startTime">开盘时间 *</Label>
-                <Input
-                  id="startTime"
-                  type="datetime-local"
-                  value={formData.startTime}
-                  onChange={e => setFormData(prev => ({ ...prev, startTime: e.target.value }))}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="endTime">结束时间 *</Label>
-                <Input
-                  id="endTime"
-                  type="datetime-local"
-                  value={formData.endTime}
-                  onChange={e => setFormData(prev => ({ ...prev, endTime: e.target.value }))}
-                  required
-                />
-              </div>
-            </div>
+            {/* 時間範圍：已移除（由後台啟停控制） */}
 
-            {/* 资产类型 */}
-            <div>
-              <Label htmlFor="assetType">资产类型</Label>
-              <Select
-                value={formData.assetType}
-                onValueChange={value => setFormData(prev => ({ ...prev, assetType: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="BTC/USDT">BTC/USDT</SelectItem>
-                  <SelectItem value="ETH/USDT">ETH/USDT</SelectItem>
-                  <SelectItem value="BNB/USDT">BNB/USDT</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {/* 資產類型：已移除（建立大盤不需要資產類型） */}
 
-            {/* 初始结果 */}
+            {/* 初始結果 */}
             <div>
-              <Label htmlFor="initialResult">初始结果</Label>
+              <Label htmlFor="initialResult">預設輸贏結果</Label>
               <Select
                 value={formData.initialResult}
                 onValueChange={value =>
@@ -267,33 +197,13 @@ export function EditMarketSessionDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="PENDING">待定</SelectItem>
-                  <SelectItem value="WIN">赢</SelectItem>
-                  <SelectItem value="LOSE">输</SelectItem>
+                  <SelectItem value="WIN">贏</SelectItem>
+                  <SelectItem value="LOSE">輸</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {/* 实际结果（仅编辑时显示） */}
-            {session && (
-              <div>
-                <Label htmlFor="actualResult">实际结果</Label>
-                <Select
-                  value={formData.actualResult || 'PENDING'}
-                  onValueChange={value =>
-                    setFormData(prev => ({ ...prev, actualResult: value as MarketResult }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PENDING">待定</SelectItem>
-                    <SelectItem value="WIN">赢</SelectItem>
-                    <SelectItem value="LOSE">输</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            {/* 實際結果：已移除（編輯大盤不需要此篩選器） */}
           </div>
 
           <DialogFooter className="mt-6">
@@ -301,7 +211,7 @@ export function EditMarketSessionDialog({
               取消
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? '保存中...' : session ? '更新' : '创建'}
+              {isSubmitting ? '儲存中...' : session ? '更新' : '建立'}
             </Button>
           </DialogFooter>
         </form>

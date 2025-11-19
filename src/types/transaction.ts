@@ -7,6 +7,8 @@ export interface Transaction {
   userId: string;
   userName?: string;  // 用戶名
   orderNumber: string;
+  marketSessionId?: string | null;   // 所屬大盤ID（可選）
+  marketSessionName?: string | null; // 所屬大盤名稱（可選）
   accountType: AccountType;
   assetType: string;
   direction: TradeDirection;

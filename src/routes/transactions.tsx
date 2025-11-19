@@ -15,6 +15,7 @@ import {
   X,
   CheckCircle,
   Filter,
+  RefreshCw,
 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -238,6 +239,37 @@ export const TransactionsPage = () => {
       ),
     },
     {
+      id: 'marketSessionName',
+      header: '大盤',
+      cell: ({ row }) => {
+        const name = (row.original.marketSessionName || '') as string;
+        return <div className="truncate max-w-[200px]">{name || '-'}</div>;
+      },
+      meta: {
+        minWidth: '140px',
+      },
+    },
+    {
+      id: 'pnl',
+      header: '損益',
+      cell: ({ row }) => {
+        const status = row.original.status;
+        if (status !== 'SETTLED') {
+          return <span className="text-muted-foreground">-</span>;
+        }
+        const value = Number(row.original.actualReturn ?? 0);
+        const positive = value >= 0;
+        return (
+          <div className={`font-medium ${positive ? 'text-green-600' : 'text-red-600'}`}>
+            {positive ? '盈利' : '虧損'} {positive ? '+' : ''}${value.toFixed(2)}
+          </div>
+        );
+      },
+      meta: {
+        minWidth: '120px'
+      }
+    },
+    {
       accessorKey: 'userName',
       header: '用戶',
       cell: ({ row }) => {
@@ -441,19 +473,30 @@ export const TransactionsPage = () => {
         <CardHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <CardTitle>交易流水</CardTitle>
-            {/* 篩選管理按鈕 - 小屏幕顯示 */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setTempFilters({ ...filters });
-                setFilterDialogOpen(true);
-              }}
-              className="sm:hidden"
-            >
-              <Filter className="mr-2 h-4 w-4" />
-              篩選管理
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ['transactions'] })}
+                aria-label="重新整理"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+                重新整理
+              </Button>
+              {/* 篩選管理按鈕 - 小屏幕顯示 */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setTempFilters({ ...filters });
+                  setFilterDialogOpen(true);
+                }}
+                className="sm:hidden"
+              >
+                <Filter className="mr-2 h-4 w-4" />
+                篩選管理
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col flex-1 min-h-0 p-6 pt-0">

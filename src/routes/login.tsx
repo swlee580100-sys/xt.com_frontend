@@ -52,7 +52,7 @@ export const LoginPage = () => {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>CT 二元期權後台管理</CardTitle>
+          <CardTitle>XT 二元期權後台管理</CardTitle>
           <CardDescription>訪問管理控制台</CardDescription>
         </CardHeader>
         <CardContent>

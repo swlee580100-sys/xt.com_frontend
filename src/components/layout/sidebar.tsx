@@ -24,7 +24,6 @@ const navItems = [
   { to: '/users', label: '用戶', icon: Users },
   { to: '/operators', label: '操作員列表', icon: UserCog },
   { to: '/opening-settings', label: '開盤設置', icon: AlarmClock },
-  { to: '/market-sessions', label: '大小盤管理', icon: TrendingUp },
   { to: '/customer-service', label: '客服管理', icon: MessageCircle },
   { to: '/cms', label: 'CMS 管理', icon: FileText },
   { to: '/settings', label: '設置', icon: Settings }

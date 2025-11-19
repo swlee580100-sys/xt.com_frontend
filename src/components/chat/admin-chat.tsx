@@ -45,14 +45,33 @@ export const AdminChat: React.FC = () => {
       });
       // 后端返回的是 { conversations: [], total: 0, ... }
       const conversationsList = response.conversations || response.data || [];
-      setConversations(conversationsList);
+      // 調試：檢查對話數據
+      console.log('對話列表數據:', conversationsList);
+      conversationsList.forEach((conv: any) => {
+        console.log(`對話 ${conv.userName}:`, {
+          adminUnreadCount: conv.adminUnreadCount,
+          unreadCount: conv.unreadCount,
+          adminUnread: conv.adminUnread,
+          unread: conv.unread,
+          fullObject: conv
+        });
+      });
+      // 映射數據：將後端可能的欄位名稱映射到前端需要的欄位
+      const mappedConversations = conversationsList.map((conv: any) => ({
+        ...conv,
+        // 嘗試多種可能的欄位名稱
+        adminUnreadCount: conv.adminUnreadCount ?? conv.unreadCount ?? conv.adminUnread ?? conv.unread ?? 0,
+        // 確保 userUnreadCount 也有值
+        userUnreadCount: conv.userUnreadCount ?? 0
+      }));
+      setConversations(mappedConversations);
     } catch (error: any) {
       console.error('❌ Failed to fetch conversations:', error);
       console.error('Error details:', error.response?.data);
       setConversations([]);
       toast({
-        title: '错误',
-        description: error.response?.data?.message || '无法获取对话列表',
+        title: '錯誤',
+        description: error.response?.data?.message || '無法取得對話列表',
         variant: 'destructive'
       });
     } finally {
@@ -89,7 +108,13 @@ export const AdminChat: React.FC = () => {
 
       // 获取对话详情（推荐方式1：对话详情接口会返回所有消息）
       const conversationDetail = await supportService.admin.getConversationDetail(api, conversation.id);
-      setSelectedConversation(conversationDetail);
+      // 映射數據：確保 adminUnreadCount 有值
+      const mappedDetail = {
+        ...conversationDetail,
+        adminUnreadCount: conversationDetail.adminUnreadCount ?? conversationDetail.unreadCount ?? 0,
+        userUnreadCount: conversationDetail.userUnreadCount ?? 0
+      };
+      setSelectedConversation(mappedDetail);
 
       // 从对话详情中获取消息列表
       if (conversationDetail.messages && conversationDetail.messages.length > 0) {
@@ -102,16 +127,31 @@ export const AdminChat: React.FC = () => {
         });
         setMessages(messageResponse.messages || messageResponse.data || []);
       }
+
+      // 如果有未讀訊息，標記為已讀
+      if (conversation.adminUnreadCount > 0 && socketService) {
+        socketService.markAsRead(conversation.id);
+        // 更新對話列表中的未讀數量
+        setConversations(prev =>
+          prev.map(conv =>
+            conv.id === conversation.id
+              ? { ...conv, adminUnreadCount: 0 }
+              : conv
+          )
+        );
+        // 更新未讀訊息總數
+        fetchUnreadCount();
+      }
     } catch (error: any) {
       console.error('Failed to load conversation:', error);
       setMessages([]);
       toast({
-        title: '错误',
-        description: error.response?.data?.message || '无法加载对话详情',
+        title: '錯誤',
+        description: error.response?.data?.message || '無法載入對話詳情',
         variant: 'destructive'
       });
     }
-  }, [api, toast, activeTab, fetchConversations]);
+  }, [api, toast, activeTab, fetchConversations, socketService, fetchUnreadCount]);
 
   // 发送消息
   const sendMessage = useCallback(async () => {
@@ -131,8 +171,8 @@ export const AdminChat: React.FC = () => {
     } catch (error) {
       console.error('Failed to send message:', error);
       toast({
-        title: '发送失败',
-        description: '消息发送失败，请重试',
+        title: '發送失敗',
+        description: '訊息發送失敗，請重試',
         variant: 'destructive'
       });
     } finally {
@@ -146,8 +186,21 @@ export const AdminChat: React.FC = () => {
 
     try {
       await supportService.admin.closeConversation(api, selectedConversation.id);
-      setSelectedConversation(prev => prev ? { ...prev, status: ConversationStatus.CLOSED } : null);
-      fetchConversations(ConversationStatus.ACTIVE);
+      // 更新選中的對話狀態
+      const updatedConversation = { ...selectedConversation, status: ConversationStatus.CLOSED };
+      setSelectedConversation(updatedConversation);
+      // 更新對話列表中的該對話狀態
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === selectedConversation.id 
+            ? { ...conv, status: ConversationStatus.CLOSED }
+            : conv
+        )
+      );
+      // 更新對話列表（不傳 status 參數，獲取所有對話）
+      await fetchConversations(undefined);
+      // 切換到處理完畢分頁
+      setActiveTab('closed');
     } catch (error) {
       console.error('Failed to close conversation:', error);
     }
@@ -222,13 +275,22 @@ export const AdminChat: React.FC = () => {
     });
 
     socket.on('messageRead', (data: { conversationId: string; readerType: string }) => {
-      // TODO: 更新消息已读状态
+      // 更新對話列表中的未讀數量
+      setConversations(prev =>
+        prev.map(conv =>
+          conv.id === data.conversationId
+            ? { ...conv, adminUnreadCount: 0 }
+            : conv
+        )
+      );
+      // 更新未讀訊息總數
+      fetchUnreadCount();
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [api, adminUser, accessToken, fetchConversations, activeTab]);
+  }, [api, adminUser, accessToken, fetchConversations, activeTab, fetchUnreadCount]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -272,31 +334,44 @@ export const AdminChat: React.FC = () => {
     });
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}/${month}/${day}`;
+  };
+
+  const getDateKey = (dateString: string) => {
+    const date = new Date(dateString);
+    return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  };
+
   const getStatusBadge = (status: ConversationStatus) => {
     switch (status) {
       case ConversationStatus.PENDING:
-        return <Badge variant="outline">待处理</Badge>;
+        return <Badge variant="outline">待處理</Badge>;
       case ConversationStatus.ACTIVE:
-        return <Badge variant="default">进行中</Badge>;
+        return <Badge variant="default">進行中</Badge>;
       case ConversationStatus.CLOSED:
-        return <Badge variant="secondary">已关闭</Badge>;
+        return <Badge variant="secondary">處理完畢</Badge>;
       default:
         return null;
     }
   };
 
   return (
-    <div className="h-[calc(100vh-180px)]">
+    <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold">客服聊天</h1>
-          <p className="text-muted-foreground">处理用户咨询和支持请求</p>
+          <p className="text-muted-foreground">處理用戶諮詢與支援請求</p>
         </div>
         <div className="flex items-center space-x-2">
           {unreadCount > 0 && (
             <>
               <AlertCircle className="w-5 h-5 text-orange-500" />
-              <Badge variant="destructive">{unreadCount} 条未读消息</Badge>
+              <Badge variant="destructive">{unreadCount} 條未讀訊息</Badge>
             </>
           )}
           <Button
@@ -307,32 +382,32 @@ export const AdminChat: React.FC = () => {
               fetchConversations(undefined);
             }}
           >
-            刷新全部
+            重新整理全部
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100%-120px)]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[560px]">
         {/* 对话列表 */}
-        <Card className="lg:col-span-1 flex flex-col">
-          <CardHeader className="pb-3">
+        <Card className="lg:col-span-1 flex flex-col h-full overflow-hidden">
+          <CardHeader className="pb-3 flex-shrink-0">
             <CardTitle className="flex items-center space-x-2">
               <Users className="w-5 h-5" />
-              <span>对话列表</span>
+              <span>對話列表</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 overflow-hidden">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-              <TabsList className="grid w-full grid-cols-2">
+          <CardContent className="flex-1 overflow-hidden flex flex-col min-h-0">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col min-h-0">
+              <TabsList className="grid w-full grid-cols-2 flex-shrink-0">
                 <TabsTrigger value="active" className="text-sm">
-                  进行中
+                  進行中
                 </TabsTrigger>
                 <TabsTrigger value="closed" className="text-sm">
-                  已关闭
+                  處理完畢
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="active" className="flex-1 overflow-y-auto mt-2">
+              <TabsContent value="active" className="flex-1 overflow-y-auto mt-2 min-h-0">
                 <div className="space-y-2">
                   {(() => {
                     // 进行中的对话包括 PENDING 和 ACTIVE 状态
@@ -344,7 +419,7 @@ export const AdminChat: React.FC = () => {
                     if (activeConversations.length === 0) {
                       return (
                         <div className="text-center py-8 text-muted-foreground">
-                          {conversations.length === 0 ? '暂无对话' : '暂无进行中的对话'}
+                          {conversations.length === 0 ? '暫無對話' : '暫無進行中的對話'}
                         </div>
                       );
                     }
@@ -355,7 +430,7 @@ export const AdminChat: React.FC = () => {
                       <div
                         key={conversation.id}
                         onClick={() => selectConversation(conversation)}
-                        className={`p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
+                        className={`relative p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
                           selectedConversation?.id === conversation.id ? 'bg-accent' : ''
                         }`}
                       >
@@ -371,24 +446,27 @@ export const AdminChat: React.FC = () => {
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground mt-1">
-                              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暂无消息'}
+                              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暫無訊息'}
                             </p>
                           </div>
                           <div className="flex flex-col items-end space-y-1">
                             {getStatusBadge(conversation.status)}
-                            {conversation.adminUnreadCount > 0 && (
-                              <Badge variant="destructive" className="text-xs">
-                                {conversation.adminUnreadCount}
-                              </Badge>
-                            )}
                           </div>
+                          {conversation.adminUnreadCount > 0 && (
+                            <span 
+                              className="absolute bottom-1 right-1 flex min-w-[16px] h-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white z-10 shadow-sm"
+                              style={{ backgroundColor: '#ef4444', color: '#ffffff' }}
+                            >
+                              {conversation.adminUnreadCount > 99 ? '99+' : conversation.adminUnreadCount}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
                 </div>
               </TabsContent>
 
-              <TabsContent value="closed" className="flex-1 overflow-y-auto mt-2">
+              <TabsContent value="closed" className="flex-1 overflow-y-auto mt-2 min-h-0">
                 <div className="space-y-2">
                   {(() => {
                     const closedConversations = conversations.filter(conv => conv.status === ConversationStatus.CLOSED);
@@ -396,7 +474,7 @@ export const AdminChat: React.FC = () => {
                     if (closedConversations.length === 0) {
                       return (
                         <div className="text-center py-8 text-muted-foreground">
-                          {conversations.length === 0 ? '暂无对话' : '暂无已关闭的对话'}
+                          {conversations.length === 0 ? '暫無對話' : '暫無處理完畢的對話'}
                         </div>
                       );
                     }
@@ -407,7 +485,7 @@ export const AdminChat: React.FC = () => {
                       <div
                         key={conversation.id}
                         onClick={() => selectConversation(conversation)}
-                        className={`p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
+                        className={`relative p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
                           selectedConversation?.id === conversation.id ? 'bg-accent' : ''
                         }`}
                       >
@@ -418,10 +496,20 @@ export const AdminChat: React.FC = () => {
                               <span className="font-medium">{conversation.userName}</span>
                             </div>
                             <p className="text-sm text-muted-foreground mt-1">
-                              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暂无消息'}
+                              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暫無訊息'}
                             </p>
                           </div>
-                          {getStatusBadge(conversation.status)}
+                          <div className="flex flex-col items-end space-y-1">
+                            {getStatusBadge(conversation.status)}
+                          </div>
+                          {conversation.adminUnreadCount > 0 && (
+                            <span 
+                              className="absolute bottom-1 right-1 flex min-w-[16px] h-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white z-10 shadow-sm"
+                              style={{ backgroundColor: '#ef4444', color: '#ffffff' }}
+                            >
+                              {conversation.adminUnreadCount > 99 ? '99+' : conversation.adminUnreadCount}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -432,10 +520,10 @@ export const AdminChat: React.FC = () => {
         </Card>
 
         {/* 聊天区域 */}
-        <Card className="lg:col-span-2 flex flex-col">
+        <Card className="lg:col-span-2 flex flex-col h-full overflow-hidden">
           {selectedConversation ? (
             <>
-              <CardHeader className="pb-3 border-b">
+              <CardHeader className="pt-3 pb-3 px-6 border-b flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <User className="w-5 h-5" />
@@ -450,60 +538,75 @@ export const AdminChat: React.FC = () => {
                   {selectedConversation.status === ConversationStatus.ACTIVE && (
                     <Button variant="destructive" size="sm" onClick={closeConversation}>
                       <XCircle className="w-4 h-4 mr-2" />
-                      关闭对话
+                      處理完畢
                     </Button>
                   )}
                 </div>
               </CardHeader>
 
-              <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
+              <CardContent className="flex-1 flex flex-col p-0 overflow-hidden min-h-0">
                 {/* 消息列表 */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
                   {messages
                     .filter(message =>
                       // 过滤掉系统消息（如"管理员已加入对话"）
                       message.senderType !== SenderType.SYSTEM &&
                       message.messageType !== MessageType.SYSTEM
                     )
-                    .map(message => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.senderType === SenderType.ADMIN ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                          message.senderType === SenderType.ADMIN
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-muted'
-                        }`}>
-                          {message.messageType === MessageType.IMAGE ? (
-                            <img
-                              src={message.content}
-                              alt="Chat image"
-                              className="max-w-full rounded"
-                            />
-                          ) : (
-                            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    .map((message, index, filteredMessages) => {
+                      const currentDateKey = getDateKey(message.createdAt);
+                      const prevMessage = index > 0 ? filteredMessages[index - 1] : null;
+                      const prevDateKey = prevMessage ? getDateKey(prevMessage.createdAt) : null;
+                      const showDateSeparator = !prevDateKey || currentDateKey !== prevDateKey;
+
+                      return (
+                        <React.Fragment key={message.id}>
+                          {showDateSeparator && (
+                            <div className="flex justify-center my-4">
+                              <div className="px-3 py-1 rounded-md bg-muted text-muted-foreground text-xs">
+                                {formatDate(message.createdAt)}
+                              </div>
+                            </div>
                           )}
-                          <p className={`text-xs mt-1 ${
-                            message.senderType === SenderType.ADMIN
-                              ? 'text-primary-foreground/70'
-                              : 'text-muted-foreground'
-                          }`}>
-                            {formatTime(message.createdAt)}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                          <div
+                            className={`flex ${message.senderType === SenderType.ADMIN ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div className={`max-w-[70%] rounded-lg px-4 py-2 ${
+                              message.senderType === SenderType.ADMIN
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-muted'
+                            }`}>
+                              {message.messageType === MessageType.IMAGE ? (
+                                <img
+                                  src={message.content}
+                                  alt="Chat image"
+                                  className="max-w-full rounded"
+                                />
+                              ) : (
+                                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                              )}
+                              <p className={`text-xs mt-1 ${
+                                message.senderType === SenderType.ADMIN
+                                  ? 'text-primary-foreground/70'
+                                  : 'text-muted-foreground'
+                              }`}>
+                                {formatTime(message.createdAt)}
+                              </p>
+                            </div>
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
                 </div>
 
                 {/* 输入区域 */}
                 {selectedConversation.status === ConversationStatus.ACTIVE && (
-                  <div className="border-t p-4">
+                  <div className="border-t p-4 flex-shrink-0">
                     <div className="flex items-center space-x-2">
                       <Input
                         value={inputMessage}
                         onChange={(e) => setInputMessage(e.target.value)}
-                        placeholder="输入回复..."
+                        placeholder="輸入回覆..."
                         onKeyPress={(e) => {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
@@ -522,11 +625,11 @@ export const AdminChat: React.FC = () => {
               </CardContent>
             </>
           ) : (
-            <CardContent className="flex-1 flex items-center justify-center">
+            <CardContent className="flex-1 flex items-center justify-center h-full">
               <div className="text-center">
                 <MessageSquare className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                 <p className="text-muted-foreground">
-                  选择一个对话开始聊天
+                  選擇一個對話開始聊天
                 </p>
               </div>
             </CardContent>
