@@ -118,22 +118,6 @@ export const UsersPage = () => {
       },
     },
     {
-      accessorKey: 'roles',
-      header: '角色',
-      cell: ({ row }) => {
-        const roles = row.getValue('roles') as string[];
-        return (
-          <div className="flex gap-1">
-            {roles.map((role) => (
-              <Badge key={role} variant="secondary">
-                {role}
-              </Badge>
-            ))}
-          </div>
-        );
-      },
-    },
-    {
       accessorKey: 'isActive',
       header: '狀態',
       cell: ({ row }) => {

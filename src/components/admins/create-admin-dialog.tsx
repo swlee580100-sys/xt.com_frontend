@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
 import { adminService } from '@/services/admins';
-import type { Admin, UpdateAdminDto } from '@/types/admin';
+import type { CreateAdminDto } from '@/types/admin';
 
 import {
   Dialog,
@@ -16,61 +16,39 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
-interface EditAdminDialogProps {
-  admin: Admin | null;
+interface CreateAdminDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export const EditAdminDialog = ({ admin, open, onOpenChange }: EditAdminDialogProps) => {
+export const CreateAdminDialog = ({ open, onOpenChange }: CreateAdminDialogProps) => {
   const { api } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [formData, setFormData] = useState({
     username: '',
-    displayName: '',
     password: '',
-    isActive: true,
+    displayName: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (admin) {
-      setFormData({
-        username: admin.username,
-        displayName: admin.displayName || '',
-        password: '',
-        isActive: admin.isActive,
-      });
-      setErrors({});
-    }
-  }, [admin]);
-
-  const updateMutation = useMutation({
-    mutationFn: async (data: UpdateAdminDto) => {
-      if (!admin) return;
-      return adminService.update(api, admin.id, data);
-    },
+  const createMutation = useMutation({
+    mutationFn: (data: CreateAdminDto) => adminService.create(api, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admins'] });
       onOpenChange(false);
+      setFormData({ username: '', password: '', displayName: '' });
+      setErrors({});
       toast({
         title: '成功',
-        description: '操作員已更新',
+        description: '操作員已建立',
       });
     },
     onError: (error: any) => {
-      const message = error?.response?.data?.message || error?.message || '更新操作員失敗';
+      const message = error?.response?.data?.message || error?.message || '建立操作員失敗';
       setErrors({ general: message });
       toast({
         title: '錯誤',
@@ -83,8 +61,6 @@ export const EditAdminDialog = ({ admin, open, onOpenChange }: EditAdminDialogPr
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!admin) return;
-
     // 驗證
     const newErrors: Record<string, string> = {};
 
@@ -92,7 +68,9 @@ export const EditAdminDialog = ({ admin, open, onOpenChange }: EditAdminDialogPr
       newErrors.username = '用戶名不能為空';
     }
 
-    if (formData.password && formData.password.length < 6) {
+    if (!formData.password.trim()) {
+      newErrors.password = '密碼不能為空';
+    } else if (formData.password.length < 6) {
       newErrors.password = '密碼長度至少為 6 個字符';
     }
 
@@ -102,21 +80,14 @@ export const EditAdminDialog = ({ admin, open, onOpenChange }: EditAdminDialogPr
     }
 
     setErrors({});
-    const updateDto: UpdateAdminDto = {
+    createMutation.mutate({
       username: formData.username.trim(),
+      password: formData.password,
       displayName: formData.displayName.trim() || undefined,
-      isActive: formData.isActive,
-    };
-
-    // 只有當密碼不為空時才更新密碼
-    if (formData.password.trim()) {
-      updateDto.password = formData.password;
-    }
-
-    updateMutation.mutate(updateDto);
+    });
   };
 
-  const handleChange = (field: string, value: string | boolean) => {
+  const handleChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     // 清除該字段的錯誤
     if (errors[field]) {
@@ -128,16 +99,14 @@ export const EditAdminDialog = ({ admin, open, onOpenChange }: EditAdminDialogPr
     }
   };
 
-  if (!admin) return null;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>編輯操作員</DialogTitle>
+            <DialogTitle>新增操作員</DialogTitle>
             <DialogDescription>
-              修改操作員 {admin.username} 的資訊
+              建立一個新的操作員帳號
             </DialogDescription>
           </DialogHeader>
 
@@ -163,6 +132,21 @@ export const EditAdminDialog = ({ admin, open, onOpenChange }: EditAdminDialogPr
             </div>
 
             <div className="grid gap-2">
+              <Label htmlFor="password">密碼 *</Label>
+              <Input
+                id="password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => handleChange('password', e.target.value)}
+                className={errors.password ? 'border-red-500' : ''}
+                placeholder="請輸入密碼（至少 6 個字符）"
+              />
+              {errors.password && (
+                <span className="text-sm text-red-600">{errors.password}</span>
+              )}
+            </div>
+
+            <div className="grid gap-2">
               <Label htmlFor="displayName">顯示名稱</Label>
               <Input
                 id="displayName"
@@ -171,50 +155,23 @@ export const EditAdminDialog = ({ admin, open, onOpenChange }: EditAdminDialogPr
                 placeholder="請輸入顯示名稱（選填）"
               />
             </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="password">新密碼</Label>
-              <Input
-                id="password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => handleChange('password', e.target.value)}
-                className={errors.password ? 'border-red-500' : ''}
-                placeholder="留空則不修改密碼"
-              />
-              {errors.password && (
-                <span className="text-sm text-red-600">{errors.password}</span>
-              )}
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="isActive">狀態</Label>
-              <Select
-                value={formData.isActive ? 'active' : 'inactive'}
-                onValueChange={(value) => handleChange('isActive', value === 'active')}
-              >
-                <SelectTrigger id="isActive">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">啟用</SelectItem>
-                  <SelectItem value="inactive">停用</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={updateMutation.isPending}
+              onClick={() => {
+                onOpenChange(false);
+                setFormData({ username: '', password: '', displayName: '' });
+                setErrors({});
+              }}
+              disabled={createMutation.isPending}
             >
               取消
             </Button>
-            <Button type="submit" disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? '保存中...' : '保存'}
+            <Button type="submit" disabled={createMutation.isPending}>
+              {createMutation.isPending ? '建立中...' : '建立'}
             </Button>
           </DialogFooter>
         </form>
@@ -222,3 +179,4 @@ export const EditAdminDialog = ({ admin, open, onOpenChange }: EditAdminDialogPr
     </Dialog>
   );
 };
+

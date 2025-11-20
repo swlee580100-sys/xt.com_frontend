@@ -34,6 +34,21 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
   const { api } = useAuth();
   const queryClient = useQueryClient();
 
+  const formatErrorMessage = (input: any): string => {
+    if (!input) return '更新失敗';
+    if (typeof input === 'string') return input;
+    if (typeof input === 'object') {
+      if (typeof input.message === 'string') return input.message;
+      if (typeof input.error === 'string') return input.error;
+      try {
+        return JSON.stringify(input);
+      } catch {
+        return '更新失敗';
+      }
+    }
+    return String(input);
+  };
+
   const [formData, setFormData] = useState({
     email: '',
     displayName: '',
@@ -134,8 +149,12 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
       onOpenChange(false);
     },
     onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || '更新失敗';
-      setErrors({ general: message });
+      const message =
+        error?.response?.data?.message ??
+        error?.response?.data ??
+        error?.message ??
+        '更新失敗';
+      setErrors({ general: formatErrorMessage(message) });
     },
   });
 

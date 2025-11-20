@@ -18,7 +18,7 @@ const navItems = [
   { to: '/orders', label: '交易流水', icon: ShoppingBag },
   { to: '/market-data', label: '市場數據', icon: BarChart3 },
   { to: '/users', label: '用戶', icon: Users },
-  { to: '/operators', label: '操作員列表', icon: UserCog },
+  // { to: '/operators', label: '操作員列表', icon: UserCog },
   { to: '/cms', label: 'CMS 管理', icon: FileText },
   { to: '/settings', label: '設置', icon: Settings }
 ];
@@ -29,7 +29,7 @@ const routeToPageName: Record<string, string> = {
   '/orders': '交易流水',
   '/market-data': '市場數據',
   '/users': '用戶',
-  '/operators': '操作員列表',
+  // '/operators': '操作員列表',
   '/cms': 'CMS 管理',
   '/settings': '設置',
 };
@@ -37,9 +37,9 @@ const routeToPageName: Record<string, string> = {
 // 獲取當前頁面名稱
 const getCurrentPageName = (pathname: string): string => {
   // 處理動態路由（如 /operators/$operatorId）
-  if (pathname.startsWith('/operators/')) {
-    return '操作員詳情';
-  }
+  // if (pathname.startsWith('/operators/')) {
+  //   return '操作員詳情';
+  // }
   return routeToPageName[pathname] || '儀表板';
 };
 

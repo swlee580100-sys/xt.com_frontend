@@ -45,6 +45,7 @@ export interface QueryTransactionsParams {
   accountType?: AccountType;
   username?: string;
   managedMode?: boolean;
+  marketSessionId?: string; // 大盤ID，用於篩選指定大盤的交易
 }
 
 export interface SettleTransactionDto {

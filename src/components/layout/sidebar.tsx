@@ -22,7 +22,7 @@ const navItems = [
   { to: '/orders', label: '交易流水', icon: ShoppingBag },
   { to: '/market-data', label: '市場數據', icon: BarChart3 },
   { to: '/users', label: '用戶', icon: Users },
-  { to: '/operators', label: '操作員列表', icon: UserCog },
+  // { to: '/operators', label: '操作員列表', icon: UserCog },
   { to: '/opening-settings', label: '開盤設置', icon: AlarmClock },
   { to: '/customer-service', label: '客服管理', icon: MessageCircle },
   { to: '/cms', label: 'CMS 管理', icon: FileText },

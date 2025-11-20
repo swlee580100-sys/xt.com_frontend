@@ -181,39 +181,6 @@ export const marketSessionAdminService = {
   }
 };
 
-/**
- * 可選的統計接口（若後端提供）
- * - GET /admin/market-sessions/order-stats?ids=uuid1,uuid2
- * 回傳格式：
- *  { stats: [{ sessionId, pendingCount, settledCount }] }
- */
-export const getOrderStatsBulk = async (
-  api: AxiosInstance,
-  ids: string[]
-): Promise<Record<string, { pendingCount: number; settledCount: number }>> => {
-  if (!ids || ids.length === 0) return {};
-  try {
-    const response = await api.get<{ stats?: Array<{ sessionId: string; pendingCount?: number; settledCount?: number }> }>(
-      `/admin/market-sessions/order-stats`,
-      { params: { ids: ids.join(',') } }
-    );
-    const list = response.data?.stats ?? [];
-    const map: Record<string, { pendingCount: number; settledCount: number }> = {};
-    for (const s of list) {
-      map[s.sessionId] = {
-        pendingCount: Number(s.pendingCount ?? 0),
-        settledCount: Number(s.settledCount ?? 0)
-      };
-    }
-    return map;
-  } catch (err: any) {
-    // 若 404 代表後端尚未提供，交由呼叫端走本地計數
-    if (err?.response?.status === 404) {
-      return {};
-    }
-    throw err;
-  }
-};
 
 export const marketSessionService = {
   ...marketSessionUserService,
