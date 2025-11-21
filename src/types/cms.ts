@@ -39,6 +39,9 @@ export interface LeaderboardEntry {
   tradeCount: number;
   winRate: number;
   volume: number;
+  totalVolume?: number;
+  highestTrade?: number;
+  lowestTrade?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +54,9 @@ export interface LeaderboardPayload {
   tradeCount: number;
   winRate: number;
   volume: number;
+  totalVolume: number;
+  highestTrade: number;
+  lowestTrade: number;
 }
 
 export interface TradingPerformanceEntry {

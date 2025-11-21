@@ -20,6 +20,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -58,6 +65,20 @@ export const UsersPage = () => {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
+  const registrationSortValue =
+    sorting[0]?.id === 'createdAt'
+      ? sorting[0]?.desc
+        ? 'newest'
+        : 'oldest'
+      : 'none';
+
+  const handleRegistrationSortChange = (value: 'none' | 'newest' | 'oldest') => {
+    if (value === 'none') {
+      setSorting([]);
+      return;
+    }
+    setSorting([{ id: 'createdAt', desc: value === 'newest' }]);
+  };
 
   // Query params
   const queryParams: QueryUsersParams = {
@@ -168,6 +189,17 @@ export const UsersPage = () => {
       },
     },
     {
+      accessorKey: 'createdAt',
+      header: '註冊時間',
+      cell: ({ row }) => {
+        const value = row.getValue('createdAt') as string | null;
+        return value ? new Date(value).toLocaleString('zh-TW') : '-';
+      },
+      meta: {
+        minWidth: '160px'
+      }
+    },
+    {
       id: 'view',
       header: '詳情',
       cell: ({ row }) => {
@@ -191,7 +223,7 @@ export const UsersPage = () => {
       header: '最後登入',
       cell: ({ row }) => {
         const date = row.getValue('lastLoginAt') as string | null;
-        return date ? new Date(date).toLocaleString('zh-CN') : '從未登入';
+        return date ? new Date(date).toLocaleString('zh-TW') : '從未登入';
       },
     },
     {
@@ -301,6 +333,19 @@ export const UsersPage = () => {
                 }}
                 className="px-3 py-2 border rounded-md"
               />
+              <Select
+                value={registrationSortValue}
+                onValueChange={(val) => handleRegistrationSortChange(val as 'none' | 'newest' | 'oldest')}
+              >
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="註冊時間排序" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">註冊時間（不排序）</SelectItem>
+                  <SelectItem value="newest">註冊時間：新 ➜ 舊</SelectItem>
+                  <SelectItem value="oldest">註冊時間：舊 ➜ 新</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>

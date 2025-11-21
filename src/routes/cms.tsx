@@ -691,7 +691,29 @@ export const CmsPage = () => {
       name: leaderboardFormData.name.trim(),
       tradeCount: Number(leaderboardFormData.tradeCount),
       winRate: Number(leaderboardFormData.winRate),
-      volume: Number(leaderboardFormData.volume)
+      volume: Number(leaderboardFormData.volume),
+      ...(() => {
+        const tradeCountValue = Math.max(0, Number(leaderboardFormData.tradeCount));
+        const volumeValue = Math.max(0, Number(leaderboardFormData.volume));
+        const safeTradeCount = tradeCountValue > 0 ? tradeCountValue : 1;
+        const averageTrade = safeTradeCount > 0 ? volumeValue / safeTradeCount : volumeValue;
+        const calculatedHighest = Math.min(
+          volumeValue || averageTrade,
+          Number((averageTrade * 1.5 || volumeValue).toFixed(2))
+        );
+        const highestTrade = Number(
+          (volumeValue === 0 ? 0 : Math.max(averageTrade, calculatedHighest)).toFixed(2)
+        );
+        const calculatedLowest = volumeValue === 0 ? 0 : averageTrade * 0.5;
+        const lowestTrade = Number(
+          Math.max(0, Math.min(highestTrade, calculatedLowest)).toFixed(2)
+        );
+        return {
+          totalVolume: Number(volumeValue.toFixed(2)),
+          highestTrade,
+          lowestTrade
+        };
+      })()
     };
 
     if (editingLeaderboard) {
