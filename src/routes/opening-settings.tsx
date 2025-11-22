@@ -81,6 +81,9 @@ export function OpeningSettingsPage() {
     useState<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' | null>(null);
   const [desiredOutcomes, setDesiredOutcomes] = useState<Record<string, 'WIN' | 'LOSE'>>({});
   const [recentFinished, setRecentFinished] = useState<Transaction[]>([]);
+  const activeRealTradesRef = useRef<Transaction[]>([]);
+  const desiredOutcomesRef = useRef<Record<string, 'WIN' | 'LOSE'>>({});
+  const quickUpdatingIdsRef = useRef<Set<string>>(new Set());
   // 後端訂單統計（若接口可用）：sessionId -> { pendingCount, settledCount }
   const [orderStats, setOrderStats] = useState<Record<string, { pendingCount: number; settledCount: number }>>({});
 
@@ -101,6 +104,18 @@ export function OpeningSettingsPage() {
       trades.filter(trade => trade.accountType === 'REAL' && trade.status === 'PENDING'),
     []
   );
+
+  useEffect(() => {
+    activeRealTradesRef.current = activeRealTrades;
+  }, [activeRealTrades]);
+
+  useEffect(() => {
+    desiredOutcomesRef.current = desiredOutcomes;
+  }, [desiredOutcomes]);
+
+  useEffect(() => {
+    quickUpdatingIdsRef.current = quickUpdatingIds;
+  }, [quickUpdatingIds]);
 
   // 獲取大盤列表
   const fetchSessions = useCallback(async () => {
@@ -288,10 +303,12 @@ export function OpeningSettingsPage() {
     return outcome === 'WIN' ? base - delta : base + delta;
   };
 
-  const fetchActiveTrades = useCallback(async () => {
+  const fetchActiveTrades = useCallback(async (options?: { silent?: boolean }) => {
     if (!api) return;
     try {
-      setIsTradeLoading(true);
+      if (!options?.silent) {
+        setIsTradeLoading(true);
+      }
       const response = await transactionService.list(api, {
         page: 1,
         limit: 100,
@@ -326,7 +343,9 @@ export function OpeningSettingsPage() {
         variant: 'destructive'
       });
     } finally {
-      setIsTradeLoading(false);
+      if (!options?.silent) {
+        setIsTradeLoading(false);
+      }
     }
   }, [api, toast, filterActiveTrades, globalOutcomeControl]);
 
@@ -334,123 +353,56 @@ export function OpeningSettingsPage() {
     fetchActiveTrades();
   }, [fetchActiveTrades]);
 
-  // 每秒輪詢更新真實交易（避免閃爍：不切換 loading、只做差異更新）
+  // 依賴 WebSocket 並以本地計時器處理倒數結束與自動結算
   useEffect(() => {
     if (!api) return;
-    let cancelled = false;
-    const timer = setInterval(async () => {
-      try {
-        const response = await transactionService.list(api, {
-          page: 1,
-          limit: 100,
-          status: 'PENDING',
-          accountType: 'REAL'
+    const timer = setInterval(() => {
+      const trades = activeRealTradesRef.current;
+      if (!trades || trades.length === 0) return;
+      const now = Date.now();
+      const justFinished = trades.filter(t => {
+        if (t.status !== 'PENDING') return false;
+        return new Date(t.expiryTime).getTime() - now <= 0;
+      });
+      if (justFinished.length > 0) {
+        setRecentFinished(prev => {
+          const map = new Map(prev.map(x => [x.id, x]));
+          for (const t of justFinished) {
+            map.set(t.id, t);
+          }
+          const merged = Array.from(map.values()).sort(
+            (a, b) => new Date(b.expiryTime).getTime() - new Date(a.expiryTime).getTime()
+          );
+          return merged.slice(0, 200);
         });
-        const incoming = filterActiveTrades(response.data || []);
-        // 依目前全局控制為缺少設定的訂單填入預設（不覆蓋已設定）
-        if (globalOutcomeControl !== 'INDIVIDUAL') {
-          const nowApply = Date.now();
-          setDesiredOutcomes(prev => {
-            const next = { ...prev };
-            for (const t of incoming) {
-              if (next[t.id]) continue;
-              const remainMs = new Date(t.expiryTime).getTime() - nowApply;
-              if (remainMs <= 0) continue;
-              next[t.id] =
-                globalOutcomeControl === 'ALL_WIN' ? 'WIN' :
-                globalOutcomeControl === 'ALL_LOSE' ? 'LOSE' :
-                Math.random() < 0.5 ? 'WIN' : 'LOSE';
+      }
+      for (const trade of justFinished) {
+        if (quickUpdatingIdsRef.current.has(trade.id)) continue;
+        setQuickUpdatingIds(prev => new Set(prev).add(trade.id));
+        const outcome = desiredOutcomesRef.current[trade.id] || 'WIN';
+        const exit = computeExitPrice(trade, outcome);
+        const socket = tradingSocketRef.current;
+        (async () => {
+          try {
+            if (socket) {
+              await socket.forceSettle(trade.id, exit);
+            } else {
+              await transactionService.settle(api, trade.orderNumber, { exitPrice: exit });
             }
-            return next;
-          });
-        }
-        // 收集本輪「已到期」但仍在 PENDING 列表中的訂單，放到本地已結束池
-        const nowTsCollect = Date.now();
-        const justFinished = incoming.filter(t => new Date(t.expiryTime).getTime() - nowTsCollect <= 0);
-        if (justFinished.length > 0) {
-          setRecentFinished(prev => {
-            const map = new Map(prev.map(x => [x.id, x]));
-            for (const t of justFinished) {
-              map.set(t.id, t);
-            }
-            // 依到期時間倒序輸出，最多保留 200 筆
-            const merged = Array.from(map.values()).sort((a, b) => {
-              return new Date(b.expiryTime).getTime() - new Date(a.expiryTime).getTime();
+          } catch (error) {
+            console.error('Auto settle failed', error);
+          } finally {
+            setQuickUpdatingIds(prev => {
+              const next = new Set(prev);
+              next.delete(trade.id);
+              return next;
             });
-            return merged.slice(0, 200);
-          });
-        }
-        // 差異合併，避免整表閃爍
-        setActiveRealTrades(prev => {
-          // 建立映射以便比對
-          const prevMap = new Map(prev.map(t => [t.id, t]));
-          const nextList: Transaction[] = [];
-          let changed = prev.length !== incoming.length;
-          // 保持時間倒序（與交易流水一致的直覺）
-          const sortedIncoming = [...incoming].sort((a, b) => {
-            const at = new Date(a.entryTime).getTime();
-            const bt = new Date(b.entryTime).getTime();
-            return bt - at;
-          });
-          for (const t of sortedIncoming) {
-            const old = prevMap.get(t.id);
-            if (!old) {
-              changed = true;
-              nextList.push(t);
-              continue;
-            }
-            // 針對會顯示的欄位做淺比較，若一致則沿用舊引用，避免不必要重繪
-            const same =
-              old.orderNumber === t.orderNumber &&
-              old.userName === t.userName &&
-              old.assetType === t.assetType &&
-              old.direction === t.direction &&
-              old.accountType === t.accountType &&
-              Number(old.entryPrice) === Number(t.entryPrice) &&
-              Number(old.investAmount) === Number(t.investAmount) &&
-              old.entryTime === t.entryTime &&
-              old.expiryTime === t.expiryTime;
-            nextList.push(same ? old : t);
-            if (!same) changed = true;
           }
-          if (!changed) return prev;
-          return nextList;
-        });
-        // 自動結算：到期時依照 switch 設定結算
-        const nowTs = Date.now();
-        for (const t of incoming) {
-          const remain = new Date(t.expiryTime).getTime() - nowTs;
-          if (remain <= 0 && !quickUpdatingIds.has(t.id)) {
-            try {
-              setQuickUpdatingIds(prev => new Set(prev).add(t.id));
-              const outcome = desiredOutcomes[t.id] || 'WIN';
-              const exit = computeExitPrice(t, outcome);
-              const socket = tradingSocketRef.current;
-              if (socket) {
-                await socket.forceSettle(t.id, exit);
-              } else {
-                await transactionService.settle(api, t.orderNumber, { exitPrice: exit });
-              }
-            } catch (e) {
-              console.error('Auto settle failed', e);
-            } finally {
-              setQuickUpdatingIds(prev => {
-                const next = new Set(prev);
-                next.delete(t.id);
-                return next;
-              });
-            }
-          }
-        }
-      } catch {
-        // 靜默失敗，避免干擾使用者；有 socket 時依賴 socket 更新
+        })();
       }
     }, 1000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [api, filterActiveTrades, desiredOutcomes]);
+    return () => clearInterval(timer);
+  }, [api, computeExitPrice]);
 
   useEffect(() => {
     if (!accessToken || !adminId) return;
@@ -459,6 +411,12 @@ export function OpeningSettingsPage() {
     tradingSocketRef.current = socket;
     setIsTradeLoading(true);
     socket.connect();
+
+    const triggerInitialSync = () => {
+      fetchActiveTrades();
+    };
+    const unsubConnect = socket.on('connect', triggerInitialSync);
+    const unsubReconnect = socket.on('reconnect', triggerInitialSync);
 
     const offInitial = socket.on<{ transactions?: Transaction[] }>('trading:initial-data', data => {
       setActiveRealTrades(filterActiveTrades(data?.transactions ?? []));
@@ -532,12 +490,14 @@ export function OpeningSettingsPage() {
       offStatus();
       offError();
       offConnectError();
+      unsubConnect?.();
+      unsubReconnect?.();
       socket.disconnect();
       if (tradingSocketRef.current === socket) {
         tradingSocketRef.current = null;
       }
     };
-  }, [accessToken, adminId, filterActiveTrades, toast]);
+  }, [accessToken, adminId, filterActiveTrades, toast, fetchActiveTrades]);
 
   const handleOpenResultDialog = (trade: Transaction) => {
     const defaultOutcome: 'WIN' | 'LOSE' = 'WIN';
@@ -795,7 +755,15 @@ export function OpeningSettingsPage() {
               </Select>
             </div>
           )}
-          <Button onClick={() => { fetchSessions(); fetchActiveCount(); }} variant="outline" disabled={isLoading}>
+          <Button
+            onClick={() => {
+              fetchSessions();
+              fetchActiveCount();
+              fetchActiveTrades();
+            }}
+            variant="outline"
+            disabled={isLoading}
+          >
             <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             重新整理
           </Button>

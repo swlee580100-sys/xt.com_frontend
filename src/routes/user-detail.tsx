@@ -20,6 +20,7 @@ import {
 import { TRADING_PAIRS } from '@/constants/trading-pairs';
 import { useAuth } from '@/hooks/useAuth';
 import { userService } from '@/services/users';
+import { transactionService } from '@/services/transactions';
 import type { User } from '@/types/user';
 import type {
   AccountType,
@@ -115,71 +116,6 @@ const MOCK_USERS: User[] = [
   }
 ];
 
-const generateMockTransactions = (user: User, count: number = 12): Transaction[] => {
-  const directions: TradeDirection[] = ['CALL', 'PUT'];
-  const statuses: TransactionStatus[] = ['PENDING', 'SETTLED'];
-  const accountTypes: AccountType[] = ['DEMO', 'REAL'];
-  const transactions: Transaction[] = [];
-  const now = Date.now();
-
-  for (let i = 0; i < count; i += 1) {
-    const asset = TRADING_PAIRS[Math.floor(Math.random() * TRADING_PAIRS.length)];
-    const direction = directions[Math.floor(Math.random() * directions.length)];
-    const status = statuses[Math.floor(Math.random() * statuses.length)];
-    const accountType = accountTypes[Math.floor(Math.random() * accountTypes.length)];
-    const duration = DURATION_OPTIONS[Math.floor(Math.random() * DURATION_OPTIONS.length)];
-    const returnRate = calculateReturnRate(duration);
-
-    const basePrice = Math.random() * 10000 + 1000;
-    const entryPrice = Math.floor(basePrice * 100) / 100;
-    const priceChange = (Math.random() - 0.5) * basePrice * 0.1;
-    const exitPrice =
-      status === 'PENDING' ? null : Math.floor((basePrice + priceChange) * 100) / 100;
-
-    const investAmount = Math.floor(Math.random() * 500 + 10);
-    const isWin =
-      direction === 'CALL'
-        ? exitPrice !== null && exitPrice > entryPrice
-        : exitPrice !== null && exitPrice < entryPrice;
-    const actualReturn =
-      status === 'PENDING'
-        ? 0
-        : (isWin ? 1 : -1) * Math.floor((investAmount * returnRate) / 100 * 100) / 100;
-
-    const entryTime = now - (i + 1) * 90 * 60 * 1000;
-    const expiryTime = entryTime + duration * 1000;
-
-    transactions.push({
-      id: `user-${user.id}-txn-${i}`,
-      userId: user.id,
-      userName: user.displayName,
-      orderNumber: `UTXN${now + i}${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
-      accountType,
-      assetType: asset,
-      direction,
-      entryTime: new Date(entryTime).toISOString(),
-      expiryTime: new Date(expiryTime).toISOString(),
-      duration,
-      entryPrice,
-      currentPrice: exitPrice,
-      exitPrice,
-      spread: Math.floor(Math.random() * 40 + 10),
-      investAmount,
-      returnRate,
-      actualReturn,
-      status,
-      createdAt: new Date(entryTime).toISOString(),
-      updatedAt: new Date(entryTime).toISOString(),
-      settledAt: status === 'SETTLED' ? new Date(expiryTime).toISOString() : null,
-      isManaged: false
-    });
-  }
-
-  return transactions.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-};
-
 export const UserDetailPage = () => {
   const { userId } = useParams({ strict: false });
   const navigate = useNavigate();
@@ -188,6 +124,8 @@ export const UserDetailPage = () => {
   const [user, setUser] = useState<User | undefined>(undefined);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsError, setTransactionsError] = useState<string | null>(null);
   const [transactionToEdit, setTransactionToEdit] = useState<Transaction | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -226,14 +164,42 @@ export const UserDetailPage = () => {
   }, [api, userId]);
 
   useEffect(() => {
-    if (user) {
-      const tradeCount =
-        typeof user.totalTrades === 'number'
-          ? user.totalTrades
-          : Number(user.totalTrades ?? 10);
-      setTransactions(generateMockTransactions(user, Number.isFinite(tradeCount) ? tradeCount : 10));
-    }
-  }, [user]);
+    let cancelled = false;
+    const loadTransactions = async () => {
+      if (!api || !userId) return;
+      try {
+        setTransactionsLoading(true);
+        const response = await transactionService.list(api, {
+          page: 1,
+          limit: 200,
+          userId
+        });
+        if (!cancelled) {
+          const items = Array.isArray(response?.data) ? response.data : [];
+          setTransactions(items);
+          setTransactionsError(null);
+        }
+      } catch (error: any) {
+        if (!cancelled) {
+          console.error('Failed to fetch user transactions:', error);
+          setTransactions([]);
+          const message =
+            error?.response?.data?.message ||
+            error?.message ||
+            '無法取得交易資料';
+          setTransactionsError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setTransactionsLoading(false);
+        }
+      }
+    };
+    loadTransactions();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, userId]);
 
   useEffect(() => {
     if (!transactionToEdit) return;
@@ -591,7 +557,13 @@ export const UserDetailPage = () => {
       <Card>
         <CardHeader>
           <CardTitle>交易流水</CardTitle>
-          <CardDescription>共 {transactions.length} 筆記錄，可點擊右側按鈕編輯</CardDescription>
+          <CardDescription>
+            {transactionsLoading
+              ? '交易資料載入中…'
+              : transactionsError
+              ? `載入交易資料失敗：${transactionsError}`
+              : `共 ${transactions.length} 筆記錄，可點擊右側按鈕編輯`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-auto">
@@ -635,7 +607,19 @@ export const UserDetailPage = () => {
                 ))}
               </TableHeader>
               <TableBody>
-                {table.getRowModel().rows?.length ? (
+                {transactionsLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length} className="h-24 text-center">
+                      交易資料載入中…
+                    </TableCell>
+                  </TableRow>
+                ) : transactionsError ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length} className="h-24 text-center text-destructive">
+                      {transactionsError}
+                    </TableCell>
+                  </TableRow>
+                ) : table.getRowModel().rows?.length ? (
                   table.getRowModel().rows.map(row => (
                     <TableRow key={row.id}>
                       {row.getVisibleCells().map(cell => {
@@ -846,4 +830,3 @@ export const UserDetailPage = () => {
     </div>
   );
 };
-

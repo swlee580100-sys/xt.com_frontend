@@ -43,6 +43,7 @@ export interface QueryTransactionsParams {
   direction?: TradeDirection;
   status?: TransactionStatus;
   accountType?: AccountType;
+  userId?: string;
   username?: string;
   managedMode?: boolean;
   marketSessionId?: string; // 大盤ID，用於篩選指定大盤的交易
