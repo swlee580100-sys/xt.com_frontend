@@ -108,6 +108,7 @@ export const OperatorDetailPage = () => {
       accessorKey: 'assetType',
       header: '交易對',
       cell: ({ row }) => <Badge variant="outline">{row.getValue('assetType')}</Badge>,
+      meta: { minWidth: '120px' }
     },
     {
       accessorKey: 'direction',

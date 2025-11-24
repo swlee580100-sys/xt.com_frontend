@@ -61,6 +61,8 @@ export const UsersPage = () => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10 });
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [verificationFilter, setVerificationFilter] = useState<'all' | 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED'>('all');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -87,6 +89,8 @@ export const UsersPage = () => {
     search: search || undefined,
     sortBy: sorting[0]?.id as any,
     sortOrder: sorting[0]?.desc ? 'desc' : 'asc',
+    isActive: statusFilter === 'all' ? undefined : statusFilter === 'active',
+    verificationStatus: verificationFilter === 'all' ? undefined : verificationFilter
   };
 
   // Fetch users
@@ -201,7 +205,7 @@ export const UsersPage = () => {
     },
     {
       id: 'view',
-      header: '詳情',
+      header: '訂單詳情',
       cell: ({ row }) => {
         const user = row.original;
         return (
@@ -210,12 +214,12 @@ export const UsersPage = () => {
             size="sm"
             onClick={() => navigate({ to: `/users/${user.id}` })}
           >
-            查看詳情
+            交易詳情
           </Button>
         );
       },
       meta: {
-        minWidth: '110px',
+        minWidth: '120px',
       },
     },
     {
@@ -322,7 +326,7 @@ export const UsersPage = () => {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>用戶管理</CardTitle>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type="text"
                 placeholder="搜索用戶..."
@@ -344,6 +348,40 @@ export const UsersPage = () => {
                   <SelectItem value="none">註冊時間（不排序）</SelectItem>
                   <SelectItem value="newest">註冊時間：新 ➜ 舊</SelectItem>
                   <SelectItem value="oldest">註冊時間：舊 ➜ 新</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => {
+                  setStatusFilter(value as typeof statusFilter);
+                  setPagination({ ...pagination, page: 1 });
+                }}
+              >
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="狀態" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部狀態</SelectItem>
+                  <SelectItem value="active">活躍</SelectItem>
+                  <SelectItem value="inactive">停用</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={verificationFilter}
+                onValueChange={(value) => {
+                  setVerificationFilter(value as typeof verificationFilter);
+                  setPagination({ ...pagination, page: 1 });
+                }}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="身份驗證" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部身份驗證</SelectItem>
+                  <SelectItem value="PENDING">待審核</SelectItem>
+                  <SelectItem value="IN_REVIEW">審核中</SelectItem>
+                  <SelectItem value="VERIFIED">驗證成功</SelectItem>
+                  <SelectItem value="REJECTED">驗證失敗</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -66,6 +66,12 @@ export const Header = () => {
 
   const currentPageName = getCurrentPageName(location.pathname);
 
+  const handleLogout = () => {
+    if (window.confirm('確定要登出嗎？')) {
+      void logout();
+    }
+  };
+
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-4 py-3">
       {/* 大屏幕：顯示歡迎訊息 */}
@@ -82,14 +88,8 @@ export const Header = () => {
       {/* 大屏幕：顯示登出按鈕 */}
       {user && (
         <div className="hidden xs:flex items-center gap-3 text-sm">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void logout();
-            }}
-          >
-            退出登入
+          <Button variant="outline" size="sm" onClick={handleLogout}>
+            登出
           </Button>
         </div>
       )}
@@ -127,12 +127,12 @@ export const Header = () => {
               <DropdownMenuItem
                 onClick={() => {
                   setIsMenuOpen(false);
-                  void logout();
+                  handleLogout();
                 }}
                 className="text-destructive focus:text-destructive"
               >
                 <LogOut className="mr-2 h-4 w-4" />
-                退出登入
+                登出
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -217,7 +217,7 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
           <DialogHeader>
             <DialogTitle>編輯用戶</DialogTitle>
             <DialogDescription>
-              修改用戶信息和账户余额
+              修改用戶資料和帳戶餘額
             </DialogDescription>
           </DialogHeader>
 
@@ -282,14 +282,14 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
                   <SelectItem value="PENDING">待審核</SelectItem>
                   <SelectItem value="IN_REVIEW">審核中</SelectItem>
                   <SelectItem value="VERIFIED">驗證成功</SelectItem>
-                  <SelectItem value="REJECTED">验证失敗</SelectItem>
+                  <SelectItem value="REJECTED">驗證失敗</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="demoBalance">虛擬盤金額（$）*</Label>
+                <Label htmlFor="demoBalance">模擬帳戶餘額（$）*</Label>
                 <Input
                   id="demoBalance"
                   type="number"
@@ -305,7 +305,7 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="realBalance">實際交易金額 ($) *</Label>
+                <Label htmlFor="realBalance">真實帳戶餘額（$）*</Label>
                 <Input
                   id="realBalance"
                   type="number"

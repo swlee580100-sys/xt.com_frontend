@@ -124,6 +124,7 @@ export const UserDetailPage = () => {
   const [user, setUser] = useState<User | undefined>(undefined);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [orderSearch, setOrderSearch] = useState('');
   const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [transactionsError, setTransactionsError] = useState<string | null>(null);
   const [transactionToEdit, setTransactionToEdit] = useState<Transaction | null>(null);
@@ -266,7 +267,8 @@ export const UserDetailPage = () => {
     {
       accessorKey: 'assetType',
       header: '交易對',
-      cell: ({ row }) => <Badge variant="outline">{row.getValue('assetType')}</Badge>
+      cell: ({ row }) => <Badge variant="outline">{row.getValue('assetType')}</Badge>,
+      meta: { minWidth: '120px' }
     },
     {
       accessorKey: 'direction',
@@ -284,11 +286,23 @@ export const UserDetailPage = () => {
     },
     {
       accessorKey: 'accountType',
-      header: '帳戶',
+      header: '交易類型',
       cell: ({ row }) => {
         const type = row.getValue('accountType') as AccountType;
-        return <Badge variant="secondary">{type === 'DEMO' ? '模擬' : '真實'}</Badge>;
-      }
+        const isDemo = type === 'DEMO';
+        return (
+          <Badge
+            variant="outline"
+            className={cn(
+              'text-xs font-semibold',
+              isDemo ? 'text-purple-600 border-purple-300 bg-purple-50' : 'text-orange-600 border-orange-300 bg-orange-50'
+            )}
+          >
+            {isDemo ? '模擬交易' : '真實交易'}
+          </Badge>
+        );
+      },
+      meta: { minWidth: '120px' }
     },
     {
       accessorKey: 'entryTime',
@@ -307,7 +321,8 @@ export const UserDetailPage = () => {
             })}
           </div>
         );
-      }
+      },
+      meta: { minWidth: '120px' }
     },
     {
       accessorKey: 'duration',
@@ -356,9 +371,11 @@ export const UserDetailPage = () => {
     {
       accessorKey: 'returnRate',
       header: '預期盈利率',
-      cell: ({ row }) => (
-        <div className="text-right">{Number(row.getValue('returnRate')).toFixed(2)}%</div>
-      )
+      cell: ({ row }) => {
+        const rate = Number(row.getValue('returnRate'));
+        const percent = Number.isFinite(rate) ? (rate * 100).toFixed(2) : '-';
+        return <div className="text-right">{percent === '-' ? '-' : `${percent}%`}</div>;
+      }
     },
     {
       accessorKey: 'actualReturn',
@@ -409,8 +426,16 @@ export const UserDetailPage = () => {
     }
   ], []);
 
+  const filteredTransactions = useMemo(() => {
+    const keyword = orderSearch.trim().toLowerCase();
+    if (!keyword) return transactions;
+    return transactions.filter(txn =>
+      txn.orderNumber.toLowerCase().includes(keyword)
+    );
+  }, [transactions, orderSearch]);
+
   const table = useReactTable({
-    data: transactions,
+    data: filteredTransactions,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -479,20 +504,10 @@ export const UserDetailPage = () => {
           <CardDescription>用戶基本資料與統計數據</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <div>
               <p className="text-sm text-muted-foreground">郵箱</p>
               <p className="font-medium">{user.email}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">角色</p>
-              <div className="flex flex-wrap gap-1">
-                {user.roles.map(role => (
-                  <Badge key={role} variant="secondary">
-                    {role}
-                  </Badge>
-                ))}
-              </div>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">身份驗證狀態</p>
@@ -555,15 +570,24 @@ export const UserDetailPage = () => {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>交易流水</CardTitle>
-          <CardDescription>
-            {transactionsLoading
-              ? '交易資料載入中…'
-              : transactionsError
-              ? `載入交易資料失敗：${transactionsError}`
-              : `共 ${transactions.length} 筆記錄，可點擊右側按鈕編輯`}
-          </CardDescription>
+        <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <CardTitle>交易流水</CardTitle>
+            <CardDescription>
+              {transactionsLoading
+                ? '交易資料載入中…'
+                : transactionsError
+                ? `載入交易資料失敗：${transactionsError}`
+                : `共 ${transactions.length} 筆記錄，可點擊右側按鈕編輯`}
+            </CardDescription>
+          </div>
+          <Input
+            type="text"
+            placeholder="搜尋訂單編號"
+            value={orderSearch}
+            onChange={event => setOrderSearch(event.target.value)}
+            className="w-full lg:w-64"
+          />
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-auto">

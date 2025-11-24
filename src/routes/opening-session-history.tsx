@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 
@@ -12,6 +12,7 @@ import type { Transaction } from '@/types/transaction';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -33,6 +34,7 @@ export function OpeningSessionHistoryPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'PENDING' | 'SETTLED' | 'ALL'>('SETTLED');
+  const [orderSearch, setOrderSearch] = useState('');
 
   const fetchSession = useCallback(async () => {
     if (!api || !sessionId) return;
@@ -95,6 +97,12 @@ export function OpeningSessionHistoryPage() {
       fetchTransactions();
     }
   }, [fetchTransactions]);
+
+  const filteredTransactions = useMemo(() => {
+    if (!orderSearch.trim()) return transactions;
+    const keyword = orderSearch.trim().toLowerCase();
+    return transactions.filter(txn => txn.orderNumber.toLowerCase().includes(keyword));
+  }, [transactions, orderSearch]);
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return '-';
@@ -176,9 +184,9 @@ export function OpeningSessionHistoryPage() {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>歷史數據</CardTitle>
-          <div className="flex items-center gap-2">
+        <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            <CardTitle>歷史數據</CardTitle>
             <Button
               variant={statusFilter === 'ALL' ? 'default' : 'outline'}
               size="sm"
@@ -205,13 +213,26 @@ export function OpeningSessionHistoryPage() {
               重新整理
             </Button>
           </div>
+          <Input
+            type="text"
+            placeholder="搜尋訂單編號"
+            value={orderSearch}
+            onChange={event => setOrderSearch(event.target.value)}
+            className="w-full lg:w-64"
+          />
         </CardHeader>
         <CardContent>
           {isLoadingTransactions ? (
             <div className="text-center text-muted-foreground py-10">載入中...</div>
-          ) : transactions.length === 0 ? (
+          ) : filteredTransactions.length === 0 ? (
             <div className="text-center text-muted-foreground py-10">
-              {statusFilter === 'PENDING' ? '暫無進行中的交易' : statusFilter === 'SETTLED' ? '暫無已結束的交易' : '暫無交易數據'}
+              {orderSearch.trim()
+                ? '找不到符合的訂單編號'
+                : statusFilter === 'PENDING'
+                ? '暫無進行中的交易'
+                : statusFilter === 'SETTLED'
+                ? '暫無已結束的交易'
+                : '暫無交易數據'}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -229,11 +250,11 @@ export function OpeningSessionHistoryPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transactions.map(trade => (
+                  {filteredTransactions.map(trade => (
                     <TableRow key={trade.id}>
                       <TableCell className="font-mono text-sm">{trade.orderNumber}</TableCell>
                       <TableCell>{trade.userName || '-'}</TableCell>
-                      <TableCell>{trade.assetType}</TableCell>
+                      <TableCell className="min-w-[120px]">{trade.assetType}</TableCell>
                       <TableCell>{trade.direction}</TableCell>
                       <TableCell>
                         ${typeof trade.investAmount === 'number'

@@ -29,6 +29,7 @@ import type {
 } from '@/types/market-session';
 import type { Transaction } from '@/types/transaction';
 import { EditMarketSessionDialog } from '@/components/market-sessions/edit-market-session-dialog';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -387,7 +388,10 @@ export function OpeningSettingsPage() {
             if (socket) {
               await socket.forceSettle(trade.id, exit);
             } else {
-              await transactionService.settle(api, trade.orderNumber, { exitPrice: exit });
+              await transactionService.forceSettle(api, trade.orderNumber, {
+                exitPrice: exit,
+                result: outcome
+              });
             }
           } catch (error) {
             console.error('Auto settle failed', error);
@@ -537,8 +541,9 @@ export function OpeningSettingsPage() {
       if (socket) {
         await socket.forceSettle(tradeToEdit.id, parsedExit);
       } else if (api) {
-        await transactionService.settle(api, tradeToEdit.orderNumber, {
-          exitPrice: parsedExit
+        await transactionService.forceSettle(api, tradeToEdit.orderNumber, {
+          exitPrice: parsedExit,
+          result: resultForm.outcome
         });
       } else {
         throw new Error('目前無法連線交易服務');
@@ -715,8 +720,10 @@ export function OpeningSettingsPage() {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
+      hour12: false,
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      second: '2-digit'
     });
   }, []);
 
@@ -1353,7 +1360,7 @@ const ActiveRealTradesSection = memo(
                   <TableHead>入場價</TableHead>
                   <TableHead>投資金額</TableHead>
                   <TableHead>入場時間</TableHead>
-                  <TableHead>到期時間</TableHead>
+                  <TableHead className="min-w-[150px]">到期時間</TableHead>
                   <TableHead className="text-right">輸 → 贏</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1365,7 +1372,7 @@ const ActiveRealTradesSection = memo(
                     )}
                     <TableCell className="font-medium">{trade.userName || '-'}</TableCell>
                     <TableCell className="font-medium">{trade.marketSessionName || '-'}</TableCell>
-                    <TableCell>
+                    <TableCell className="min-w-[120px]">
                       <Badge variant="outline">{trade.assetType}</Badge>
                     </TableCell>
                     <TableCell>
@@ -1385,32 +1392,43 @@ const ActiveRealTradesSection = memo(
                         : Number(trade.investAmount || 0).toFixed(2)}
                     </TableCell>
                     <TableCell className="text-sm">{formatTime(trade.entryTime)}</TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="text-sm min-w-[150px]">
                       {formatTime(trade.expiryTime)}
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        （倒數：{getRemainingSeconds(trade.expiryTime)} 秒）
-                      </span>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        倒數：{getRemainingSeconds(trade.expiryTime)} 秒
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <span className="text-xs text-muted-foreground">輸</span>
-                        <Switch
-                          disabled={quickUpdatingIds.has(trade.id) || trade.status === 'SETTLED' || trade.status === 'CANCELED'}
-                          checked={
-                            trade.status === 'SETTLED' || trade.status === 'CANCELED'
-                              ? (trade.actualReturn && trade.actualReturn > 0) || false
-                              : (desiredOutcomes[trade.id] || 'LOSE') === 'WIN'
-                          }
-                          onCheckedChange={(checked) => {
-                            // 已結束的交易不能修改
-                            if (trade.status === 'SETTLED' || trade.status === 'CANCELED') return;
-                            setOutcomeControl('INDIVIDUAL');
-                            setDesiredOutcomes(prev => ({ ...prev, [trade.id]: checked ? 'WIN' : 'LOSE' }));
-                          }}
-                          aria-label="切換輸贏"
-                        />
-                        <span className="text-xs text-muted-foreground">贏</span>
-                      </div>
+                      {durationFilter === 'FINISHED' || trade.status === 'SETTLED' || trade.status === 'CANCELED' ? (
+                        <div
+                          className={cn(
+                            'font-medium',
+                            typeof trade.actualReturn === 'number'
+                              ? trade.actualReturn >= 0
+                                ? 'text-green-600'
+                                : 'text-red-600'
+                              : 'text-muted-foreground'
+                          )}
+                        >
+                          {typeof trade.actualReturn === 'number'
+                            ? `${trade.actualReturn >= 0 ? '+' : '-'}$${Math.abs(trade.actualReturn).toFixed(2)}`
+                            : '-'}
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-xs text-muted-foreground">輸</span>
+                          <Switch
+                            disabled={quickUpdatingIds.has(trade.id)}
+                            checked={(desiredOutcomes[trade.id] || 'LOSE') === 'WIN'}
+                            onCheckedChange={(checked) => {
+                              setOutcomeControl('INDIVIDUAL');
+                              setDesiredOutcomes(prev => ({ ...prev, [trade.id]: checked ? 'WIN' : 'LOSE' }));
+                            }}
+                            aria-label="切換輸贏"
+                          />
+                          <span className="text-xs text-muted-foreground">贏</span>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

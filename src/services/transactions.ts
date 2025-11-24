@@ -4,6 +4,7 @@ import type {
   PaginatedTransactionsResponse,
   QueryTransactionsParams,
   SettleTransactionDto,
+  ForceSettleDto,
 } from '@/types/transaction';
 
 export const transactionService = {
@@ -38,6 +39,18 @@ export const transactionService = {
     data: SettleTransactionDto,
   ): Promise<Transaction> => {
     const response = await api.post(`/transactions/${orderNumber}/settle`, data);
+    return response.data.data;
+  },
+
+  /**
+   * 管理端強制結算交易
+   */
+  forceSettle: async (
+    api: AxiosInstance,
+    orderNumber: string,
+    data: ForceSettleDto = {}
+  ): Promise<Transaction> => {
+    const response = await api.post(`/admin/transactions/${orderNumber}/force-settle`, data);
     return response.data.data;
   },
 
