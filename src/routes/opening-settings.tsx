@@ -714,7 +714,7 @@ export function OpeningSettingsPage() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  // 格式化時間
+  // 格式化時間（使用台灣時間）
   const formatTime = useCallback((dateString: string) => {
     return new Date(dateString).toLocaleString('zh-TW', {
       year: 'numeric',
@@ -723,7 +723,8 @@ export function OpeningSettingsPage() {
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
+      timeZone: 'Asia/Taipei',
     });
   }, []);
 

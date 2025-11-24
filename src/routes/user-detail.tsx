@@ -14,11 +14,13 @@ import {
   ChevronUp,
   Pencil,
   UserX,
-  UserCheck
+  UserCheck,
+  Plus
 } from 'lucide-react';
 
 import { TRADING_PAIRS } from '@/constants/trading-pairs';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/useToast';
 import { userService } from '@/services/users';
 import { transactionService } from '@/services/transactions';
 import type { User } from '@/types/user';
@@ -29,14 +31,16 @@ import type {
   TransactionStatus
 } from '@/types/transaction';
 import { cn } from '@/lib/utils';
+import { formatTaiwanDateTime, formatTaiwanDate, formatTaiwanTime } from '@/lib/date-utils';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -120,6 +124,7 @@ export const UserDetailPage = () => {
   const { userId } = useParams({ strict: false });
   const navigate = useNavigate();
   const { api } = useAuth();
+  const { toast } = useToast();
 
   const [user, setUser] = useState<User | undefined>(undefined);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -129,6 +134,19 @@ export const UserDetailPage = () => {
   const [transactionsError, setTransactionsError] = useState<string | null>(null);
   const [transactionToEdit, setTransactionToEdit] = useState<Transaction | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    assetType: '',
+    direction: 'CALL' as TradeDirection,
+    accountType: 'DEMO' as AccountType,
+    entryPrice: '',
+    investAmount: '',
+    duration: '30',
+    entryTime: '',
+    status: 'PENDING' as TransactionStatus,
+    isWin: true, // 輸贏狀態：true = 贏，false = 輸
+    actualReturn: '' // 實際收益（手動輸入）
+  });
   const [editForm, setEditForm] = useState({
     assetType: '',
     direction: 'CALL' as TradeDirection,
@@ -138,7 +156,9 @@ export const UserDetailPage = () => {
     investAmount: '',
     duration: '30',
     entryTime: '',
-    status: 'PENDING' as TransactionStatus
+    status: 'PENDING' as TransactionStatus,
+    isWin: true, // 輸贏狀態：true = 贏，false = 輸
+    actualReturn: '' // 實際收益（手動輸入）
   });
 
   useEffect(() => {
@@ -210,6 +230,9 @@ export const UserDetailPage = () => {
       .toISOString()
       .slice(0, 16);
 
+    // 根據實際收益判斷輸贏：actualReturn > 0 為贏，否則為輸
+    const isWin = transactionToEdit.actualReturn > 0;
+    
     setEditForm({
       assetType: transactionToEdit.assetType,
       direction: transactionToEdit.direction,
@@ -221,41 +244,212 @@ export const UserDetailPage = () => {
         ? transactionToEdit.duration.toString()
         : '30',
       entryTime: entryLocal,
-      status: transactionToEdit.status
+      status: transactionToEdit.status,
+      isWin,
+      actualReturn: transactionToEdit.actualReturn.toString()
     });
   }, [transactionToEdit]);
 
-  const handleUpdateTransaction = () => {
-    if (!transactionToEdit) return;
+  const handleCreateTransaction = async () => {
+    if (!userId || !api) return;
+
+    const duration = parseInt(createForm.duration, 10) || 30;
+    const entryTimeIso = new Date(createForm.entryTime).toISOString();
+    // 計算報酬率：根據文檔，returnRate 是 0-10 的數值，如 0.85 表示 85%
+    // calculateReturnRate 返回百分比數值（如 5, 10, 15），需要轉換為小數（如 0.05, 0.10, 0.15）
+    const returnRatePercent = calculateReturnRate(duration);
+    const returnRate = returnRatePercent / 100;
+
+    try {
+      console.log('創建訂單，參數:', {
+        userId,
+        assetType: createForm.assetType,
+        direction: createForm.direction,
+        duration,
+        entryPrice: parseFloat(createForm.entryPrice),
+        investAmount: parseInt(createForm.investAmount, 10) || 0,
+        returnRate,
+        accountType: createForm.accountType,
+        entryTime: entryTimeIso,
+      });
+
+      // 計算實際收益：根據輸贏狀態和投資金額計算
+      const investAmount = parseInt(createForm.investAmount, 10) || 0;
+      
+      // 如果用戶手動輸入了實際收益，使用輸入值；否則根據輸贏狀態計算
+      let actualReturn = 0;
+      if (createForm.actualReturn !== '' && createForm.actualReturn !== '0') {
+        actualReturn = parseFloat(createForm.actualReturn) || 0;
+      } else {
+        // 根據輸贏狀態計算：贏 = 投資金額 × (1 + 報酬率)，輸 = -投資金額
+        actualReturn = createForm.isWin 
+          ? investAmount * (1 + returnRate) 
+          : -investAmount;
+      }
+
+      // 先創建交易
+      const newTransaction = await transactionService.create(api, {
+        userId,
+        assetType: createForm.assetType,
+        direction: createForm.direction,
+        duration,
+        entryPrice: parseFloat(createForm.entryPrice),
+        investAmount,
+        returnRate,
+        accountType: createForm.accountType,
+        entryTime: entryTimeIso,
+        status: 'PENDING', // 先創建為進行中狀態
+        reason: '管理端手動創建',
+      });
+
+      // 如果狀態是「已結算」，創建後立即強制結算
+      if (createForm.status === 'SETTLED') {
+        // 使用入場價作為出場價（新增訂單時沒有單獨的出場價欄位）
+        const exitPrice = parseFloat(createForm.entryPrice);
+        
+        const result: 'WIN' | 'LOSE' = actualReturn > 0 ? 'WIN' : 'LOSE';
+        
+        await transactionService.forceSettle(api, newTransaction.orderNumber, {
+          exitPrice,
+          result,
+          reason: '管理端手動創建並結算',
+        });
+      }
+
+      console.log('創建成功，返回的交易:', newTransaction);
+
+      // 重新載入交易列表 - 使用與初始載入相同的方式
+      setTransactionsLoading(true);
+      try {
+        const response = await transactionService.list(api, {
+          page: 1,
+          limit: 200,
+          userId
+        });
+        
+        console.log('重新載入交易列表，完整響應:', response);
+        const items = Array.isArray(response?.data) ? response.data : [];
+        console.log('交易列表項目數:', items.length);
+        console.log('交易列表項目:', items);
+        setTransactions(items);
+        setTransactionsError(null);
+      } catch (listError: any) {
+        console.error('重新載入交易列表失敗:', listError);
+        // 即使重新載入失敗，也顯示創建成功（因為創建已經成功）
+      } finally {
+        setTransactionsLoading(false);
+      }
+
+      toast({
+        title: '成功',
+        description: `訂單創建成功，訂單號: ${newTransaction.orderNumber}`,
+      });
+
+      setCreateDialogOpen(false);
+      setCreateForm({
+        assetType: '',
+        direction: 'CALL',
+        accountType: 'DEMO',
+        entryPrice: '',
+        investAmount: '',
+        duration: '30',
+        entryTime: '',
+        status: 'PENDING',
+        isWin: true,
+        actualReturn: ''
+      });
+    } catch (error: any) {
+      console.error('創建訂單失敗:', error);
+      console.error('錯誤詳情:', {
+        message: error?.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+      });
+      toast({
+        title: '錯誤',
+        description: error?.response?.data?.message || error?.message || '創建訂單失敗',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleUpdateTransaction = async () => {
+    if (!transactionToEdit || !api) return;
 
     const duration = parseInt(editForm.duration, 10) || 30;
     const entryTimeIso = new Date(editForm.entryTime).toISOString();
-    const expiryTime = new Date(new Date(entryTimeIso).getTime() + duration * 1000).toISOString();
+    
+    // 計算實際收益：根據輸贏狀態和投資金額計算
+    const investAmount = parseInt(editForm.investAmount, 10) || 0;
+    const returnRate = calculateReturnRate(duration) / 100; // 轉換為小數（如 0.05 表示 5%）
+    
+    // 如果用戶手動輸入了實際收益，使用輸入值；否則根據輸贏狀態計算
+    let actualReturn = 0;
+    if (editForm.actualReturn !== '' && editForm.actualReturn !== '0') {
+      actualReturn = parseFloat(editForm.actualReturn) || 0;
+    } else {
+      // 根據輸贏狀態計算：贏 = 投資金額 × (1 + 報酬率)，輸 = -投資金額
+      actualReturn = editForm.isWin 
+        ? investAmount * (1 + returnRate) 
+        : -investAmount;
+    }
 
-    setTransactions(prev =>
-      prev.map(txn =>
-        txn.id === transactionToEdit.id
-          ? {
-              ...txn,
-              assetType: editForm.assetType,
-              direction: editForm.direction,
-              accountType: editForm.accountType,
-              entryPrice: parseFloat(editForm.entryPrice),
-              exitPrice: editForm.exitPrice ? parseFloat(editForm.exitPrice) : null,
-              investAmount: parseInt(editForm.investAmount, 10) || 0,
-              duration,
-              returnRate: calculateReturnRate(duration),
-              entryTime: entryTimeIso,
-              expiryTime,
-              status: editForm.status,
-              updatedAt: new Date().toISOString()
-            }
-          : txn
-      )
-    );
+    try {
+      // 如果狀態改為「已結算」，使用強制結算接口
+      if (editForm.status === 'SETTLED') {
+        // 計算出場價：如果沒有手動輸入，使用入場價
+        const exitPrice = editForm.exitPrice 
+          ? parseFloat(editForm.exitPrice) 
+          : parseFloat(editForm.entryPrice);
+        
+        // 根據實際收益判斷輸贏結果
+        const result: 'WIN' | 'LOSE' = actualReturn > 0 ? 'WIN' : 'LOSE';
+        
+        await transactionService.forceSettle(api, transactionToEdit.orderNumber, {
+          exitPrice,
+          result,
+          reason: '管理端手動結算',
+        });
+      } else {
+        // 其他情況使用更新接口
+        await transactionService.update(api, transactionToEdit.orderNumber, {
+          assetType: editForm.assetType,
+          direction: editForm.direction,
+          duration,
+          entryPrice: parseFloat(editForm.entryPrice),
+          exitPrice: editForm.exitPrice ? parseFloat(editForm.exitPrice) : null,
+          investAmount,
+          returnRate: calculateReturnRate(duration) / 100,
+          accountType: editForm.accountType,
+          entryTime: entryTimeIso,
+          status: editForm.status,
+          actualReturn,
+        });
+      }
 
-    setEditDialogOpen(false);
-    setTransactionToEdit(null);
+      // 重新載入交易列表
+      const response = await transactionService.list(api, {
+        page: 1,
+        limit: 200,
+        userId
+      });
+      setTransactions(Array.isArray(response?.data) ? response.data : []);
+
+      toast({
+        title: '成功',
+        description: '訂單更新成功',
+      });
+
+      setEditDialogOpen(false);
+      setTransactionToEdit(null);
+    } catch (error: any) {
+      console.error('Failed to update transaction:', error);
+      toast({
+        title: '錯誤',
+        description: error?.response?.data?.message || error?.message || '更新訂單失敗',
+        variant: 'destructive',
+      });
+    }
   };
 
   const columns = useMemo<ColumnDef<Transaction>[]>(() => [
@@ -311,14 +505,7 @@ export const UserDetailPage = () => {
         const entryTime = row.getValue('entryTime') as string;
         return (
           <div className="text-sm">
-            {new Date(entryTime).toLocaleString('zh-TW', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit'
-            })}
+            {formatTaiwanDateTime(entryTime)}
           </div>
         );
       },
@@ -561,7 +748,7 @@ export const UserDetailPage = () => {
               <p className="text-sm text-muted-foreground">最後登入</p>
               <p className="font-medium">
                 {user.lastLoginAt
-                  ? new Date(user.lastLoginAt).toLocaleString('zh-TW')
+                  ? formatTaiwanDateTime(user.lastLoginAt)
                   : '尚未登入'}
               </p>
             </div>
@@ -581,13 +768,34 @@ export const UserDetailPage = () => {
                 : `共 ${transactions.length} 筆記錄，可點擊右側按鈕編輯`}
             </CardDescription>
           </div>
-          <Input
-            type="text"
-            placeholder="搜尋訂單編號"
-            value={orderSearch}
-            onChange={event => setOrderSearch(event.target.value)}
-            className="w-full lg:w-64"
-          />
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              placeholder="搜尋訂單編號"
+              value={orderSearch}
+              onChange={event => setOrderSearch(event.target.value)}
+              className="w-full lg:w-64"
+            />
+            <Button
+              onClick={() => {
+                const now = new Date();
+                const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+                  .toISOString()
+                  .slice(0, 16);
+                setCreateForm(prev => ({
+                  ...prev,
+                  entryTime: localTime,
+                  status: 'PENDING',
+                  isWin: true,
+                  actualReturn: ''
+                }));
+                setCreateDialogOpen(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              新增訂單
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-auto">
@@ -676,6 +884,9 @@ export const UserDetailPage = () => {
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>編輯交易</DialogTitle>
+            <DialogDescription>
+              編輯交易詳情，可修改狀態、輸贏結果和實際收益
+            </DialogDescription>
           </DialogHeader>
           {transactionToEdit ? (
             <div className="space-y-4 py-4">
@@ -749,9 +960,56 @@ export const UserDetailPage = () => {
                     <SelectContent>
                       <SelectItem value="PENDING">進行中</SelectItem>
                       <SelectItem value="SETTLED">已結算</SelectItem>
-                      <SelectItem value="CANCELED">已取消</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-isWin">輸贏結果</Label>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="edit-isWin"
+                      checked={editForm.isWin}
+                      onCheckedChange={(checked) => {
+                        // 當切換輸贏狀態時，自動計算實際收益
+                        const investAmount = parseInt(editForm.investAmount, 10) || 0;
+                        const returnRate = calculateReturnRate(parseInt(editForm.duration, 10) || 30) / 100;
+                        const newActualReturn = checked 
+                          ? investAmount * (1 + returnRate) 
+                          : -investAmount;
+                        setEditForm(prev => ({ 
+                          ...prev, 
+                          isWin: checked,
+                          actualReturn: newActualReturn.toFixed(2)
+                        }));
+                      }}
+                    />
+                    <Label htmlFor="edit-isWin" className="cursor-pointer">
+                      {editForm.isWin ? '贏' : '輸'}
+                    </Label>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-actualReturn">實際收益</Label>
+                  <Input
+                    id="edit-actualReturn"
+                    type="number"
+                    step="0.01"
+                    value={editForm.actualReturn}
+                    onChange={event => {
+                      const value = event.target.value;
+                      const numValue = parseFloat(value) || 0;
+                      // 當手動輸入實際收益時，自動判斷輸贏狀態
+                      setEditForm(prev => ({ 
+                        ...prev, 
+                        actualReturn: value,
+                        isWin: numValue > 0
+                      }));
+                    }}
+                    placeholder="自動計算或手動輸入"
+                  />
                 </div>
               </div>
 
@@ -834,9 +1092,11 @@ export const UserDetailPage = () => {
                   <Label>出場時間（自動計算）</Label>
                   <div className="rounded-md border bg-muted px-3 py-2 text-sm">
                     {editForm.entryTime && editForm.duration
-                      ? new Date(
-                          new Date(editForm.entryTime).getTime() + parseInt(editForm.duration, 10) * 1000
-                        ).toLocaleString('zh-TW')
+                      ? formatTaiwanDateTime(
+                          new Date(
+                            new Date(editForm.entryTime).getTime() + parseInt(editForm.duration, 10) * 1000
+                          ).toISOString()
+                        )
                       : '-'}
                   </div>
                 </div>
@@ -848,6 +1108,236 @@ export const UserDetailPage = () => {
               取消
             </Button>
             <Button onClick={handleUpdateTransaction}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Transaction Dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>新增訂單</DialogTitle>
+            <DialogDescription>
+              為用戶創建新的交易訂單
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="create-assetType">交易對</Label>
+                <Select
+                  value={createForm.assetType}
+                  onValueChange={value => setCreateForm(prev => ({ ...prev, assetType: value }))}
+                >
+                  <SelectTrigger id="create-assetType">
+                    <SelectValue placeholder="選擇交易對" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRADING_PAIRS.map(pair => (
+                      <SelectItem key={pair} value={pair}>
+                        {pair}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-direction">方向</Label>
+                <Select
+                  value={createForm.direction}
+                  onValueChange={value =>
+                    setCreateForm(prev => ({ ...prev, direction: value as TradeDirection }))
+                  }
+                >
+                  <SelectTrigger id="create-direction">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CALL">看漲</SelectItem>
+                    <SelectItem value="PUT">看跌</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="create-accountType">帳戶</Label>
+                <Select
+                  value={createForm.accountType}
+                  onValueChange={value =>
+                    setCreateForm(prev => ({ ...prev, accountType: value as AccountType }))
+                  }
+                >
+                  <SelectTrigger id="create-accountType">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DEMO">模擬</SelectItem>
+                    <SelectItem value="REAL">真實</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-status">狀態</Label>
+                <Select
+                  value={createForm.status}
+                  onValueChange={value =>
+                    setCreateForm(prev => ({ ...prev, status: value as TransactionStatus }))
+                  }
+                >
+                  <SelectTrigger id="create-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PENDING">進行中</SelectItem>
+                    <SelectItem value="SETTLED">已結算</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="create-duration">交易秒數</Label>
+                <Select
+                  value={createForm.duration}
+                  onValueChange={value => setCreateForm(prev => ({ ...prev, duration: value }))}
+                >
+                  <SelectTrigger id="create-duration">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DURATION_OPTIONS.map(duration => (
+                      <SelectItem key={duration} value={duration.toString()}>
+                        {duration} 秒 (盈利率 {calculateReturnRate(duration)}%)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-isWin">輸贏結果</Label>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="create-isWin"
+                    checked={createForm.isWin}
+                    onCheckedChange={(checked) => {
+                      // 當切換輸贏狀態時，自動計算實際收益
+                      const investAmount = parseInt(createForm.investAmount, 10) || 0;
+                      const returnRate = calculateReturnRate(parseInt(createForm.duration, 10) || 30) / 100;
+                      const newActualReturn = checked 
+                        ? investAmount * (1 + returnRate) 
+                        : -investAmount;
+                      setCreateForm(prev => ({ 
+                        ...prev, 
+                        isWin: checked,
+                        actualReturn: newActualReturn.toFixed(2)
+                      }));
+                    }}
+                  />
+                  <Label htmlFor="create-isWin" className="cursor-pointer">
+                    {createForm.isWin ? '贏' : '輸'}
+                  </Label>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="create-entryPrice">入場價</Label>
+                <Input
+                  id="create-entryPrice"
+                  type="number"
+                  step="0.01"
+                  value={createForm.entryPrice}
+                  onChange={event =>
+                    setCreateForm(prev => ({ ...prev, entryPrice: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-investAmount">投資金額</Label>
+                <Input
+                  id="create-investAmount"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={createForm.investAmount}
+                  onChange={event => {
+                    const value = event.target.value;
+                    if (value === '' || /^\d+$/.test(value)) {
+                      setCreateForm(prev => ({ ...prev, investAmount: value }));
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="create-entryTime">入場時間</Label>
+                <Input
+                  id="create-entryTime"
+                  type="datetime-local"
+                  value={createForm.entryTime}
+                  onChange={event =>
+                    setCreateForm(prev => ({ ...prev, entryTime: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>出場時間（自動計算）</Label>
+                <div className="rounded-md border bg-muted px-3 py-2 text-sm">
+                  {createForm.entryTime && createForm.duration
+                    ? formatTaiwanDateTime(
+                        new Date(
+                          new Date(createForm.entryTime).getTime() + parseInt(createForm.duration, 10) * 1000
+                        ).toISOString()
+                      )
+                    : '-'}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="create-actualReturn">實際收益</Label>
+              <Input
+                id="create-actualReturn"
+                type="number"
+                step="0.01"
+                value={createForm.actualReturn}
+                onChange={event => {
+                  const value = event.target.value;
+                  const numValue = parseFloat(value) || 0;
+                  // 當手動輸入實際收益時，自動判斷輸贏狀態
+                  setCreateForm(prev => ({ 
+                    ...prev, 
+                    actualReturn: value,
+                    isWin: numValue > 0
+                  }));
+                }}
+                placeholder="自動計算或手動輸入"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={handleCreateTransaction}
+              disabled={
+                !createForm.assetType ||
+                !createForm.entryPrice ||
+                !createForm.investAmount ||
+                !createForm.entryTime ||
+                isNaN(parseFloat(createForm.entryPrice)) ||
+                isNaN(parseInt(createForm.investAmount, 10))
+              }
+            >
+              創建
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

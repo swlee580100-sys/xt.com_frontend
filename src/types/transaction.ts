@@ -61,3 +61,34 @@ export interface ForceSettleDto {
   result?: 'WIN' | 'LOSE';
   reason?: string;
 }
+
+export interface CreateTransactionDto {
+  userId: string;
+  assetType: string;
+  direction: TradeDirection;
+  duration: number;
+  entryPrice: number;
+  investAmount: number;
+  returnRate: number; // 报酬率（0-10），如 0.85 表示 85%
+  accountType?: AccountType; // 默认 DEMO
+  entryTime?: string; // ISO 8601 格式，默认当前时间
+  exitPrice?: number; // 出场价格，如果提供则创建已结算的交易
+  status?: TransactionStatus; // 默认 PENDING
+  autoSettle?: boolean; // 是否自动结算（当提供 exitPrice 时），默认 true
+  reason?: string; // 创建原因（用于审计）
+  marketSessionId?: string | null; // 大盤ID（可選）
+}
+
+export interface UpdateTransactionDto {
+  assetType?: string;
+  direction?: TradeDirection;
+  duration?: number;
+  entryPrice?: number;
+  exitPrice?: number | null;
+  investAmount?: number;
+  returnRate?: number;
+  accountType?: AccountType;
+  entryTime?: string;
+  status?: TransactionStatus;
+  actualReturn?: number; // 實際收益
+}

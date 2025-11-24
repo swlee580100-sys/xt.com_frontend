@@ -16,6 +16,7 @@ import { useToast } from '@/hooks/useToast';
 import { adminService } from '@/services/admins';
 import type { Admin, QueryAdminsParams } from '@/types/admin';
 import { cn } from '@/lib/utils';
+import { formatTaiwanDateTime } from '@/lib/date-utils';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -172,7 +173,7 @@ export const OperatorsPage = () => {
       header: '最後登入',
       cell: ({ row }) => {
         const date = row.getValue('lastLoginAt') as string | null;
-        return date ? new Date(date).toLocaleString('zh-TW') : '從未登入';
+        return date ? formatTaiwanDateTime(date) : '從未登入';
       },
     },
     {

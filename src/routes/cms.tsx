@@ -97,20 +97,12 @@ const leaderboardTypeLabel: Record<LeaderboardType, string> = {
   MONTHLY: '月榜'
 };
 
-// 格式化日期時間為兩行顯示
+import { formatTaiwanDate, formatTaiwanTime } from '@/lib/date-utils';
+
+// 格式化日期時間為兩行顯示（使用台灣時間）
 const formatDateTime = (dateString: string): string => {
-  const date = new Date(dateString);
-  const dateStr = date.toLocaleDateString('zh-TW', {
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric'
-  });
-  const timeStr = date.toLocaleTimeString('zh-TW', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true
-  });
+  const dateStr = formatTaiwanDate(dateString);
+  const timeStr = formatTaiwanTime(dateString);
   return `${dateStr}\n${timeStr}`;
 };
 

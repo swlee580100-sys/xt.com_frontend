@@ -9,6 +9,7 @@ import { transactionService } from '@/services/transactions';
 import type { MarketSession } from '@/types/market-session';
 import type { Transaction } from '@/types/transaction';
 
+import { formatTaiwanDateTime } from '@/lib/date-utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -105,13 +106,8 @@ export function OpeningSessionHistoryPage() {
   }, [transactions, orderSearch]);
 
   const formatDateTime = (value?: string | null) => {
-    if (!value) return '-';
-    return new Date(value).toLocaleString('zh-TW', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
+    return formatTaiwanDateTime(value, {
+      second: undefined,
     });
   };
 
