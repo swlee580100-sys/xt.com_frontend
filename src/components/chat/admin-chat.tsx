@@ -249,7 +249,13 @@ export const AdminChat: React.FC = () => {
     // 监听业务事件
     socket.on('newMessage', (message: ChatMessage) => {
       if (selectedConversationRef.current && message.conversationId === selectedConversationRef.current.id) {
-        setMessages(prev => [...prev, message]);
+        setMessages(prev => {
+          // 检查消息是否已存在，避免重复
+          if (prev.some(m => m.id === message.id)) {
+            return prev;
+          }
+          return [...prev, message];
+        });
       }
       // 刷新对话列表以更新最后消息时间
       fetchConversations(activeTab === 'active' ? ConversationStatus.ACTIVE : ConversationStatus.CLOSED);
@@ -471,7 +477,12 @@ export const AdminChat: React.FC = () => {
                     );
                   }
 
-                  return activeConversations;
+                  // 去重：确保每个对话 ID 只出现一次
+                  const uniqueConversations = Array.from(
+                    new Map(activeConversations.map(c => [c.id, c])).values()
+                  );
+
+                  return uniqueConversations;
                 })()
                   .map?.(conversation => (
                     <div
@@ -543,12 +554,17 @@ export const AdminChat: React.FC = () => {
               <CardContent className="flex-1 flex flex-col p-0 overflow-hidden min-h-0">
                 {/* 消息列表 */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
-                  {messages
-                    .filter(message =>
+                  {(() => {
+                    // 先去重，再过滤
+                    const uniqueMessages = Array.from(
+                      new Map(messages.map(m => [m.id, m])).values()
+                    );
+                    return uniqueMessages.filter(message =>
                       // 过滤掉系统消息（如"管理员已加入对话"）
                       message.senderType !== SenderType.SYSTEM &&
                       message.messageType !== MessageType.SYSTEM
-                    )
+                    );
+                  })()
                     .map((message, index, filteredMessages) => {
                       const currentDateKey = getDateKey(message.createdAt);
                       const prevMessage = index > 0 ? filteredMessages[index - 1] : null;

@@ -70,7 +70,7 @@ export function OpeningSettingsPage() {
   const [isTradeLoading, setIsTradeLoading] = useState(false);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [tradeToEdit, setTradeToEdit] = useState<Transaction | null>(null);
-  const [resultForm, setResultForm] = useState({ outcome: 'WIN', exitPrice: '' });
+  const [resultForm, setResultForm] = useState<{ outcome: 'WIN' | 'LOSE'; exitPrice: string }>({ outcome: 'WIN', exitPrice: '' });
   const [isSubmittingResult, setIsSubmittingResult] = useState(false);
   const tradingSocketRef = useRef<TradeUpdatesSocket | null>(null);
   const [hideOrderNumber, setHideOrderNumber] = useState(true);
@@ -378,23 +378,39 @@ export function OpeningSettingsPage() {
         });
       }
       for (const trade of justFinished) {
+        // 双重检查：跳过已经在处理中的交易
         if (quickUpdatingIdsRef.current.has(trade.id)) continue;
+
+        // 再次确认交易状态仍然是 PENDING（防止 WebSocket 已更新）
+        const currentTrade = activeRealTradesRef.current.find(t => t.id === trade.id);
+        if (!currentTrade || currentTrade.status !== 'PENDING') continue;
+
         setQuickUpdatingIds(prev => new Set(prev).add(trade.id));
         const outcome = desiredOutcomesRef.current[trade.id] || 'WIN';
         const exit = computeExitPrice(trade, outcome);
         const socket = tradingSocketRef.current;
         (async () => {
           try {
-            if (socket) {
-              await socket.forceSettle(trade.id, exit);
-            } else {
+            // 优先使用 API 调用，这样管理员介入的结果会强制生效
+            if (api) {
               await transactionService.forceSettle(api, trade.orderNumber, {
                 exitPrice: exit,
                 result: outcome
               });
+            } else if (socket) {
+              await socket.forceSettle(trade.id, exit);
+            } else {
+              throw new Error('无法连接到交易服务');
             }
-          } catch (error) {
-            console.error('Auto settle failed', error);
+          } catch (error: any) {
+            // 忽略"已结算"的错误，这是正常的竞态条件（后端已经处理了）
+            const errorMsg = error?.message || String(error);
+            if (errorMsg.includes('已结算') || errorMsg.includes('已取消') || errorMsg.includes('already settled')) {
+              // 静默处理，不打印错误日志
+              return;
+            }
+            // 其他错误才打印日志
+            console.error('Auto settle failed:', error);
           } finally {
             setQuickUpdatingIds(prev => {
               const next = new Set(prev);
@@ -460,6 +476,14 @@ export function OpeningSettingsPage() {
           ? filterActiveTrades([trade, ...list])
           : list;
       });
+      // 如果交易状态变为非 PENDING，从正在处理的集合中移除
+      if (trade.status !== 'PENDING') {
+        setQuickUpdatingIds(prev => {
+          const next = new Set(prev);
+          next.delete(trade.id);
+          return next;
+        });
+      }
     };
 
     const offUpdated = socket.on<{ transaction?: Transaction }>('trading:transaction-updated', data => {
@@ -537,14 +561,14 @@ export function OpeningSettingsPage() {
 
     try {
       setIsSubmittingResult(true);
-      const socket = tradingSocketRef.current;
-      if (socket) {
-        await socket.forceSettle(tradeToEdit.id, parsedExit);
-      } else if (api) {
+      // 优先使用 API 调用，这样管理员介入的结果会强制生效，不受真实交易结果影响
+      if (api) {
         await transactionService.forceSettle(api, tradeToEdit.orderNumber, {
           exitPrice: parsedExit,
           result: resultForm.outcome
         });
+      } else if (tradingSocketRef.current) {
+        await tradingSocketRef.current.forceSettle(tradeToEdit.id, parsedExit);
       } else {
         throw new Error('目前無法連線交易服務');
       }
@@ -1236,13 +1260,20 @@ const ActiveRealTradesSection = memo(
 
     const allowedDurations = [30, 60, 90, 120, 150, 180] as const;
 
+    // 先对 trades 进行去重，避免重复的 key
+    const uniqueTrades = Array.from(
+      new Map(trades.map(t => [t.id, t])).values()
+    );
+
     const filteredTrades =
       durationFilter === 'FINISHED'
-        ? [...finishedTrades].sort(
+        ? Array.from(
+            new Map(finishedTrades.map(t => [t.id, t])).values()
+          ).sort(
             (a, b) =>
               new Date(b.expiryTime).getTime() - new Date(a.expiryTime).getTime()
           )
-        : trades.filter(trade => {
+        : uniqueTrades.filter(trade => {
             const remain = getRemainingSeconds(trade.expiryTime);
             const dur = getDurationSeconds(trade.entryTime, trade.expiryTime);
             if (durationFilter === 'ALL') {
