@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { userService } from '@/services/users';
 import type { User, QueryUsersParams } from '@/types/user';
 import { cn } from '@/lib/utils';
+import { formatTaiwanDateTime } from '@/lib/date-utils';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -197,7 +198,7 @@ export const UsersPage = () => {
       header: '註冊時間',
       cell: ({ row }) => {
         const value = row.getValue('createdAt') as string | null;
-        return value ? new Date(value).toLocaleString('zh-TW') : '-';
+        return value ? formatTaiwanDateTime(value) : '-';
       },
       meta: {
         minWidth: '160px'
@@ -227,7 +228,7 @@ export const UsersPage = () => {
       header: '最後登入',
       cell: ({ row }) => {
         const date = row.getValue('lastLoginAt') as string | null;
-        return date ? new Date(date).toLocaleString('zh-TW') : '從未登入';
+        return date ? formatTaiwanDateTime(date) : '從未登入';
       },
     },
     {

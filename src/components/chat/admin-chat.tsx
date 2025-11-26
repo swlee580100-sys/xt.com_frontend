@@ -16,6 +16,7 @@ import { supportService, SupportSocketService } from '@/services/support-chat';
 import { appConfig } from '@/config/env';
 import type { ChatConversation, ChatMessage } from '@/types/support';
 import { ConversationStatus, MessageType, SenderType } from '@/types/support';
+import { formatTaiwanTime, formatTaiwanDate } from '@/lib/date-utils';
 
 export const AdminChat: React.FC = () => {
   const { api, user, tokens } = useAuth();
@@ -329,14 +330,16 @@ export const AdminChat: React.FC = () => {
   }, [activeTab, fetchConversations]);
 
   const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString('zh-TW', {
-      hour: '2-digit',
-      minute: '2-digit'
+    return formatTaiwanTime(dateString, {
+      second: undefined,
     });
   };
 
   const formatDate = (dateString: string) => {
+    return formatTaiwanDate(dateString);
+  };
+
+  const formatDateOld = (dateString: string) => {
     const date = new Date(dateString);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');

@@ -25,6 +25,7 @@ import type {
   TradingPerformancePayload,
 } from '@/types/cms';
 import { cn } from '@/lib/utils';
+import { formatTaiwanDateTime } from '@/lib/date-utils';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -326,7 +327,7 @@ export const SettingsPage = () => {
       header: '最後登入',
       cell: ({ row }) => {
         const date = row.getValue('lastLoginAt') as string | null;
-        return date ? new Date(date).toLocaleString('zh-TW') : '從未登入';
+        return date ? formatTaiwanDateTime(date) : '從未登入';
       },
     },
     {
@@ -342,7 +343,7 @@ export const SettingsPage = () => {
       header: '創建時間',
       cell: ({ row }) => {
         const date = row.getValue('createdAt') as string;
-        return new Date(date).toLocaleString('zh-TW');
+        return formatTaiwanDateTime(date);
       },
     },
     {
@@ -951,7 +952,7 @@ export const SettingsPage = () => {
                             <TableCell className="font-medium">{entry.tradeDuration}</TableCell>
                             <TableCell>{entry.winRate.toFixed(2)}%</TableCell>
                             <TableCell className="text-sm text-muted-foreground">
-                              {new Date(entry.updatedAt).toLocaleString('zh-TW')}
+                              {formatTaiwanDateTime(entry.updatedAt)}
                             </TableCell>
                             <TableCell className="flex items-center justify-end gap-2">
                               <Button size="sm" variant="ghost" onClick={() => handleEditPerformance(entry)}>

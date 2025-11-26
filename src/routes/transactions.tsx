@@ -27,6 +27,7 @@ import type {
   SettleTransactionDto,
 } from '@/types/transaction';
 import { cn } from '@/lib/utils';
+import { formatTaiwanDateTime } from '@/lib/date-utils';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -404,7 +405,7 @@ export const TransactionsPage = () => {
       header: '入場時間',
       cell: ({ row }) => {
         const date = row.getValue('entryTime') as string;
-        return <div className="text-sm">{new Date(date).toLocaleString('zh-CN')}</div>;
+        return <div className="text-sm">{formatTaiwanDateTime(date)}</div>;
       },
     },
     {
@@ -412,7 +413,7 @@ export const TransactionsPage = () => {
       header: '到期時間',
       cell: ({ row }) => {
         const date = row.getValue('expiryTime') as string;
-        return <div className="text-sm">{new Date(date).toLocaleString('zh-CN')}</div>;
+        return <div className="text-sm">{formatTaiwanDateTime(date)}</div>;
       },
     },
     {

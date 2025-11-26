@@ -15,7 +15,8 @@ type BasicEvent = 'connect' | 'disconnect' | 'connect_error';
 const resolveBaseUrl = (): string => {
   const wsUrl = appConfig.wsUrl;
   if (wsUrl) {
-    return wsUrl.replace(/^ws/, 'http').replace(/\/$/, '');
+    // 將 ws:// 或 wss:// 轉換為 http:// 或 https://
+    return wsUrl.replace(/^ws/, 'http').replace(/^wss/, 'https').replace(/\/$/, '');
   }
   try {
     const apiUrl = new URL(appConfig.apiUrl);
@@ -28,7 +29,17 @@ const resolveBaseUrl = (): string => {
   }
 };
 
-const buildSocketUrl = () => `${resolveBaseUrl()}/admin/trading`;
+// Socket.IO 的基礎 URL（不包含路徑）
+const buildSocketBaseUrl = () => resolveBaseUrl();
+
+// Socket.IO 的路徑配置
+// 如果後端的 Socket.IO 服務器掛載在 /admin/trading 路徑上，使用 '/admin/trading/socket.io/'
+// 如果後端的 Socket.IO 服務器在根路徑，使用 '/socket.io/'
+const buildSocketPath = () => {
+  // 根據環境變量或配置決定路徑
+  // 目前先嘗試根路徑，如果後端確實在 /admin/trading，可以改為 '/admin/trading/socket.io/'
+  return '/socket.io/';
+};
 
 export class AdminTradingSocket {
   private socket: Socket | null = null;
@@ -38,6 +49,7 @@ export class AdminTradingSocket {
 
   connect(): void {
     if (!this.token || !this.adminId) {
+      console.warn('TradeUpdatesSocket: Missing token or adminId, cannot connect');
       return;
     }
 
@@ -45,22 +57,34 @@ export class AdminTradingSocket {
       this.disconnect();
     }
 
-    this.socket = io(buildSocketUrl(), {
+    const socketBaseUrl = buildSocketBaseUrl();
+    const socketPath = buildSocketPath();
+    console.log('TradeUpdatesSocket: Connecting to', socketBaseUrl, 'with path', socketPath);
+    
+    this.socket = io(socketBaseUrl, {
       auth: { token: this.token },
-      transports: ['websocket'],
-      autoConnect: true
+      transports: ['websocket', 'polling'], // 添加 polling 作為備選
+      autoConnect: true,
+      path: socketPath,
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 5
     });
 
     this.socket.on('connect', () => {
+      console.log('TradeUpdatesSocket: Connected successfully');
       this.socket?.emit('trading:subscribe', { adminId: this.adminId });
       this.emit('connect', undefined);
     });
 
-    this.socket.on('disconnect', () => {
+    this.socket.on('disconnect', (reason) => {
+      console.log('TradeUpdatesSocket: Disconnected, reason:', reason);
       this.emit('disconnect', undefined);
     });
 
     this.socket.on('connect_error', (error) => {
+      console.error('TradeUpdatesSocket: Connection error', error);
       this.emit('connect_error', error);
     });
 
@@ -88,14 +112,16 @@ export class AdminTradingSocket {
     };
   }
 
-  forceSettle(transactionId: string, settlementPrice?: number): Promise<Transaction> {
+  forceSettle(transactionId: string, settlementPrice?: number, result?: 'WIN' | 'LOSE'): Promise<Transaction> {
     if (!this.adminId) {
       return Promise.reject(new Error('缺少管理员信息'));
     }
+    console.log('🔵 WebSocket forceSettle called:', { transactionId, settlementPrice, result, socketConnected: this.socket?.connected });
     return this.emitAction<Transaction>('trading:force-settle', {
       transactionId,
       adminId: this.adminId,
-      settlementPrice
+      settlementPrice,
+      result
     });
   }
 
@@ -124,10 +150,26 @@ export class AdminTradingSocket {
   private emitAction<T>(event: string, payload: Record<string, any>): Promise<T> {
     return new Promise((resolve, reject) => {
       if (!this.socket) {
+        console.error('❌ WebSocket not available');
         reject(new Error('WebSocket not connected'));
         return;
       }
+      if (!this.socket.connected) {
+        console.error('❌ WebSocket not connected, socket state:', this.socket.disconnected ? 'disconnected' : 'connecting');
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+      console.log('📤 Emitting WebSocket event:', event, payload);
+      
+      // 設置超時，避免無限等待
+      const timeout = setTimeout(() => {
+        console.error('❌ WebSocket emit timeout:', event);
+        reject(new Error('WebSocket request timeout'));
+      }, 10000); // 10秒超時
+      
       this.socket.emit(event, payload, (response: { success: boolean; transaction?: T; error?: string }) => {
+        clearTimeout(timeout);
+        console.log('📥 WebSocket response:', event, response);
         if (response?.success && response.transaction) {
           resolve(response.transaction);
         } else {
