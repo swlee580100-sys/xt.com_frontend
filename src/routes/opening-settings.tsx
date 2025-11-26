@@ -80,7 +80,28 @@ export function OpeningSettingsPage() {
   const [confirmGlobalOpen, setConfirmGlobalOpen] = useState(false);
   const [pendingGlobalMode, setPendingGlobalMode] =
     useState<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' | null>(null);
-  const [desiredOutcomes, setDesiredOutcomes] = useState<Record<string, 'WIN' | 'LOSE'>>({});
+  // 從 localStorage 恢復控制輸贏設定
+  const loadDesiredOutcomesFromStorage = useCallback(() => {
+    try {
+      const stored = localStorage.getItem('opening-settings-desired-outcomes');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // 只保留有效的數據（確保格式正確）
+        const valid: Record<string, 'WIN' | 'LOSE'> = {};
+        for (const [key, value] of Object.entries(parsed)) {
+          if (value === 'WIN' || value === 'LOSE') {
+            valid[key] = value;
+          }
+        }
+        return valid;
+      }
+    } catch (error) {
+      console.error('Failed to load desired outcomes from storage:', error);
+    }
+    return {};
+  }, []);
+
+  const [desiredOutcomes, setDesiredOutcomes] = useState<Record<string, 'WIN' | 'LOSE'>>(() => loadDesiredOutcomesFromStorage());
   const [recentFinished, setRecentFinished] = useState<Transaction[]>([]);
   const activeRealTradesRef = useRef<Transaction[]>([]);
   const desiredOutcomesRef = useRef<Record<string, 'WIN' | 'LOSE'>>({});
@@ -112,6 +133,12 @@ export function OpeningSettingsPage() {
 
   useEffect(() => {
     desiredOutcomesRef.current = desiredOutcomes;
+    // 保存到 localStorage
+    try {
+      localStorage.setItem('opening-settings-desired-outcomes', JSON.stringify(desiredOutcomes));
+    } catch (error) {
+      console.error('Failed to save desired outcomes to storage:', error);
+    }
   }, [desiredOutcomes]);
 
   useEffect(() => {
@@ -318,14 +345,20 @@ export function OpeningSettingsPage() {
       });
       const list = filterActiveTrades(response.data || []);
       setActiveRealTrades(list);
-      // 依據當前全局控制，為尚未設定期望值的新訂單套預設（不覆蓋已設定）
-      const mode = globalOutcomeControl;
-      if (mode !== 'INDIVIDUAL') {
-        setDesiredOutcomes(prev => {
-          const next = { ...prev };
+      
+      // 先從 localStorage 恢復已設定的控制輸贏（不覆蓋已存在的設定）
+      setDesiredOutcomes(prev => {
+        // 從 localStorage 加載已保存的設定
+        const stored = loadDesiredOutcomesFromStorage();
+        // 合併：優先使用當前狀態，然後合併存儲的數據
+        const next = { ...stored, ...prev };
+        
+        // 依據當前全局控制，為尚未設定期望值的新訂單套預設（不覆蓋已設定）
+        const mode = globalOutcomeControl;
+        if (mode !== 'INDIVIDUAL') {
           const now = Date.now();
           for (const t of list) {
-            if (next[t.id]) continue;
+            if (next[t.id]) continue; // 不覆蓋已設定的
             const remain = new Date(t.expiryTime).getTime() - now;
             if (remain <= 0) continue;
             next[t.id] =
@@ -333,9 +366,9 @@ export function OpeningSettingsPage() {
               mode === 'ALL_LOSE' ? 'LOSE' :
               Math.random() < 0.5 ? 'WIN' : 'LOSE';
           }
-          return next;
-        });
-      }
+        }
+        return next;
+      });
     } catch (error: any) {
       console.error('Failed to fetch real trades:', error);
       toast({
@@ -348,7 +381,7 @@ export function OpeningSettingsPage() {
         setIsTradeLoading(false);
       }
     }
-  }, [api, toast, filterActiveTrades, globalOutcomeControl]);
+  }, [api, toast, filterActiveTrades, globalOutcomeControl, loadDesiredOutcomesFromStorage]);
 
   useEffect(() => {
     fetchActiveTrades();
@@ -543,7 +576,7 @@ export function OpeningSettingsPage() {
       } else if (api) {
         await transactionService.forceSettle(api, tradeToEdit.orderNumber, {
           exitPrice: parsedExit,
-          result: resultForm.outcome
+          result: resultForm.outcome as 'WIN' | 'LOSE'
         });
       } else {
         throw new Error('目前無法連線交易服務');
