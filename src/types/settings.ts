@@ -84,9 +84,35 @@ export interface UpdateIpWhitelistDto {
 
 export interface IpWhitelistConfig {
   enabled: boolean; // 是否啟用IP白名單功能
+  ips: string[]; // IP地址列表，支持单个IP或CIDR格式
+  description?: string; // 描述信息
 }
 
 export interface UpdateIpWhitelistConfigDto {
   config: IpWhitelistConfig;
+}
+
+// 分享配置
+export interface ShareConfig {
+  title: string;
+  description: string;
+  image: string;
+  url: string;
+  hashtags: string[];
+  content: string;
+}
+
+export interface UpdateShareConfigDto {
+  config: ShareConfig;
+}
+
+// 入金地址配置
+export interface DepositAddressConfig {
+  address: string;
+  qrCodeUrl: string;
+}
+
+export interface UpdateDepositAddressConfigDto {
+  config: DepositAddressConfig;
 }
 

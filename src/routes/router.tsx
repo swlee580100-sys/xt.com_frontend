@@ -22,6 +22,7 @@ import { CmsPage } from '@/routes/cms';
 import { SettingsPage } from '@/routes/settings';
 import { CustomerServicePage } from '@/routes/customer-service';
 import { OpeningSettingsPage } from '@/routes/opening-settings';
+import OpeningSessionHistoryPage from '@/routes/opening-session-history';
 import { useAuth } from '@/hooks/useAuth';
 
 const rootRoute = createRootRouteWithContext<{ auth: ReturnType<typeof useAuth> }>()({
@@ -97,6 +98,12 @@ const openingSettingsRoute = createRoute({
   component: OpeningSettingsPage
 });
 
+const openingSettingsDetailRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: '/opening-settings/$sessionId',
+  component: OpeningSessionHistoryPage
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/settings',
@@ -129,6 +136,7 @@ const appRoutes = appLayoutRoute.addChildren([
   operatorsRoute,
   operatorDetailRoute,
   openingSettingsRoute,
+  openingSettingsDetailRoute,
   customerServiceRoute,
   cmsRoute,
   settingsRoute

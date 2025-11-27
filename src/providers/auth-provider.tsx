@@ -92,10 +92,10 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       variant: 'destructive'
     });
 
-    // Logout after 5 seconds
+    // Logout after 3 seconds
     setTimeout(() => {
       handleLogout();
-    }, 5000);
+    }, 3000);
   }, [toast, handleLogout, forbiddenHandled]);
 
   const api = useMemo(

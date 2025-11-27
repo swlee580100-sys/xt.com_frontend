@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { FocusEvent, MouseEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   useReactTable,
@@ -15,6 +16,7 @@ import {
   X,
   CheckCircle,
   Filter,
+  RefreshCw,
 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -25,6 +27,7 @@ import type {
   SettleTransactionDto,
 } from '@/types/transaction';
 import { cn } from '@/lib/utils';
+import { formatTaiwanDateTime } from '@/lib/date-utils';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -77,7 +80,10 @@ export const TransactionsPage = () => {
     status?: string;
     accountType?: string;
     username?: string;
-    managedMode?: boolean;
+    orderNumber?: string;
+    fromDate?: string;
+    toDate?: string;
+    // managedMode?: boolean;
   }>({});
   
   // 無限滾動狀態（用於小屏幕）
@@ -101,7 +107,10 @@ export const TransactionsPage = () => {
     status?: string;
     accountType?: string;
     username?: string;
-    managedMode?: boolean;
+    orderNumber?: string;
+    fromDate?: string;
+    toDate?: string;
+    // managedMode?: boolean;
   }>({});
 
   // 檢測屏幕寬度
@@ -122,7 +131,10 @@ export const TransactionsPage = () => {
     status: filters.status as any,
     accountType: filters.accountType as any,
     username: filters.username || undefined,
-    managedMode: filters.managedMode,
+    orderNumber: filters.orderNumber || undefined,
+    from: filters.fromDate ? new Date(filters.fromDate).toISOString() : undefined,
+    to: filters.toDate ? new Date(filters.toDate).toISOString() : undefined,
+    // managedMode: filters.managedMode,
   };
 
   // Fetch transactions
@@ -162,7 +174,10 @@ export const TransactionsPage = () => {
       status: filters.status as any,
       accountType: filters.accountType as any,
       username: filters.username || undefined,
-      managedMode: filters.managedMode,
+      orderNumber: filters.orderNumber || undefined,
+      from: filters.fromDate ? new Date(filters.fromDate).toISOString() : undefined,
+      to: filters.toDate ? new Date(filters.toDate).toISOString() : undefined,
+      // managedMode: filters.managedMode,
     };
 
     try {
@@ -238,6 +253,37 @@ export const TransactionsPage = () => {
       ),
     },
     {
+      id: 'marketSessionName',
+      header: '大盤',
+      cell: ({ row }) => {
+        const name = (row.original.marketSessionName || '') as string;
+        return <div className="truncate max-w-[200px]">{name || '-'}</div>;
+      },
+      meta: {
+        minWidth: '140px',
+      },
+    },
+    {
+      id: 'pnl',
+      header: '損益',
+      cell: ({ row }) => {
+        const status = row.original.status;
+        if (status !== 'SETTLED') {
+          return <span className="text-muted-foreground">-</span>;
+        }
+        const value = Number(row.original.actualReturn ?? 0);
+        const positive = value >= 0;
+        return (
+          <div className={`font-medium ${positive ? 'text-green-600' : 'text-red-600'}`}>
+            {positive ? '盈利' : '虧損'} {positive ? '+' : ''}${value.toFixed(2)}
+          </div>
+        );
+      },
+      meta: {
+        minWidth: '120px'
+      }
+    },
+    {
       accessorKey: 'userName',
       header: '用戶',
       cell: ({ row }) => {
@@ -249,6 +295,9 @@ export const TransactionsPage = () => {
       accessorKey: 'assetType',
       header: '交易對',
       cell: ({ row }) => <Badge variant="outline">{row.getValue('assetType')}</Badge>,
+      meta: {
+        minWidth: '120px'
+      }
     },
     {
       accessorKey: 'direction',
@@ -267,15 +316,27 @@ export const TransactionsPage = () => {
     },
     {
       accessorKey: 'accountType',
-      header: '帳戶類型',
+      header: '交易類型',
       cell: ({ row }) => {
         const accountType = row.getValue('accountType') as string;
+        const isReal = accountType === 'REAL';
         return (
-          <Badge variant={accountType === 'REAL' ? 'warning' : 'secondary'}>
-            {accountType === 'REAL' ? '真實' : '模擬'}
+          <Badge
+            variant="outline"
+            className={cn(
+              'text-xs font-semibold',
+              isReal
+                ? 'text-orange-600 border-orange-300 bg-orange-50'
+                : 'text-purple-600 border-purple-300 bg-purple-50'
+            )}
+          >
+            {isReal ? '真實交易' : '模擬交易'}
           </Badge>
         );
       },
+      meta: {
+        minWidth: '120px'
+      }
     },
     {
       accessorKey: 'entryPrice',
@@ -340,22 +401,11 @@ export const TransactionsPage = () => {
       },
     },
     {
-      accessorKey: 'isManaged',
-      header: '託管',
-      cell: ({ row }) => {
-        const isManaged = row.original.isManaged;
-        if (isManaged) {
-          return <Badge variant="default">託管</Badge>;
-        }
-        return <span className="text-sm text-muted-foreground">-</span>;
-      },
-    },
-    {
       accessorKey: 'entryTime',
       header: '入場時間',
       cell: ({ row }) => {
         const date = row.getValue('entryTime') as string;
-        return <div className="text-sm">{new Date(date).toLocaleString('zh-CN')}</div>;
+        return <div className="text-sm">{formatTaiwanDateTime(date)}</div>;
       },
     },
     {
@@ -363,7 +413,7 @@ export const TransactionsPage = () => {
       header: '到期時間',
       cell: ({ row }) => {
         const date = row.getValue('expiryTime') as string;
-        return <div className="text-sm">{new Date(date).toLocaleString('zh-CN')}</div>;
+        return <div className="text-sm">{formatTaiwanDateTime(date)}</div>;
       },
     },
     {
@@ -418,8 +468,31 @@ export const TransactionsPage = () => {
     },
   ];
 
-  // Table instance - 根據屏幕大小使用不同的數據源
-  const tableData = isMobile ? allTransactions : (data?.data || []);
+  const tableData = useMemo(() => {
+    let source = isMobile ? allTransactions : (data?.data || []);
+    const fromTs = filters.fromDate ? new Date(filters.fromDate).getTime() : undefined;
+    const toTs = filters.toDate ? new Date(filters.toDate).getTime() : undefined;
+    const orderKeyword = filters.orderNumber?.trim().toLowerCase();
+
+    if (fromTs !== undefined || toTs !== undefined) {
+      source = source.filter(item => {
+        const entryTs = item.entryTime ? new Date(item.entryTime).getTime() : NaN;
+        if (Number.isNaN(entryTs)) return false;
+        if (fromTs !== undefined && entryTs < fromTs) return false;
+        if (toTs !== undefined && entryTs > toTs) return false;
+        return true;
+      });
+    }
+
+    if (orderKeyword) {
+      source = source.filter(item =>
+        item.orderNumber?.toLowerCase().includes(orderKeyword)
+      );
+    }
+
+    return source;
+  }, [isMobile, allTransactions, data?.data, filters.fromDate, filters.toDate, filters.orderNumber]);
+  const isLocalFilterActive = Boolean(filters.fromDate || filters.toDate || filters.orderNumber);
   const table = useReactTable({
     data: tableData,
     columns,
@@ -430,7 +503,11 @@ export const TransactionsPage = () => {
       sorting,
     },
     manualPagination: !isMobile, // 小屏幕時不使用分頁
-    pageCount: isMobile ? undefined : Math.ceil((data?.total || 0) / (data?.limit || 30)),
+    pageCount: isMobile
+      ? undefined
+      : isLocalFilterActive
+      ? 1
+      : Math.ceil((data?.total || 0) / (data?.limit || pagination.limit)),
   });
 
   if (error) {
@@ -446,25 +523,49 @@ export const TransactionsPage = () => {
     );
   }
 
+  const handleDatePickerOpen = (event: FocusEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+    }
+  };
+
+  const totalRecordsDisplay = isLocalFilterActive ? tableData.length : data?.total || 0;
+  const totalPagesDisplay = isLocalFilterActive
+    ? 1
+    : Math.max(1, Math.ceil((data?.total || 0) / (data?.limit || pagination.limit)));
+  const currentPageDisplay = isLocalFilterActive ? 1 : data?.page || pagination.page || 1;
+
   return (
     <>
       <Card className="flex flex-col flex-1 min-h-0">
         <CardHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <CardTitle>交易流水</CardTitle>
-            {/* 篩選管理按鈕 - 小屏幕顯示 */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setTempFilters({ ...filters });
-                setFilterDialogOpen(true);
-              }}
-              className="sm:hidden"
-            >
-              <Filter className="mr-2 h-4 w-4" />
-              篩選管理
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ['transactions'] })}
+                aria-label="重新整理"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+                重新整理
+              </Button>
+              {/* 篩選管理按鈕 - 小屏幕顯示 */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setTempFilters({ ...filters });
+                  setFilterDialogOpen(true);
+                }}
+                className="sm:hidden"
+              >
+                <Filter className="mr-2 h-4 w-4" />
+                篩選管理
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col flex-1 min-h-0 p-6 pt-0">
@@ -476,6 +577,13 @@ export const TransactionsPage = () => {
               value={filters.username || ''}
               onChange={(e) => setFilters({ ...filters, username: e.target.value || undefined })}
               className="w-40"
+            />
+            <Input
+              type="text"
+              placeholder="訂單編號"
+              value={filters.orderNumber || ''}
+              onChange={(e) => setFilters({ ...filters, orderNumber: e.target.value || undefined })}
+              className="w-48"
             />
             <Select
               value={filters.assetType || 'all'}
@@ -533,25 +641,31 @@ export const TransactionsPage = () => {
                 <SelectItem value="REAL">真實帳戶</SelectItem>
               </SelectContent>
             </Select>
-            <Select
-              value={filters.managedMode === undefined ? 'all' : filters.managedMode ? 'true' : 'false'}
-              onValueChange={(value) => {
-                setFilters({
-                  ...filters,
-                  managedMode: value === 'all' ? undefined : value === 'true',
-                });
-              }}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue placeholder="全部託管" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部託管</SelectItem>
-                <SelectItem value="true">託管</SelectItem>
-                <SelectItem value="false">非託管</SelectItem>
-              </SelectContent>
-            </Select>
-            {(filters.assetType || filters.direction || filters.status || filters.accountType || filters.username || filters.managedMode !== undefined) && (
+            <Input
+              type="datetime-local"
+              value={filters.fromDate || ''}
+              onChange={(e) => setFilters({ ...filters, fromDate: e.target.value || undefined })}
+              className="w-56"
+              onFocus={handleDatePickerOpen}
+              onClick={handleDatePickerOpen}
+            />
+            <span className="text-muted-foreground">~</span>
+            <Input
+              type="datetime-local"
+              value={filters.toDate || ''}
+              onChange={(e) => setFilters({ ...filters, toDate: e.target.value || undefined })}
+              className="w-56"
+              onFocus={handleDatePickerOpen}
+              onClick={handleDatePickerOpen}
+            />
+            {(filters.assetType ||
+              filters.direction ||
+              filters.status ||
+              filters.accountType ||
+              filters.username ||
+              filters.orderNumber ||
+              filters.fromDate ||
+              filters.toDate) && (
               <Button
                 variant="outline"
                 onClick={() => setFilters({})}
@@ -650,7 +764,7 @@ export const TransactionsPage = () => {
               {/* Pagination - 僅在大屏幕顯示 */}
               <div className="hidden sm:flex items-center justify-between space-x-2 py-4">
                 <div className="text-sm text-muted-foreground">
-                  共 {data?.total || 0} 條記錄，第 {data?.page || 0} / {Math.ceil((data?.total || 0) / (data?.limit || 30))} 頁
+                  共 {totalRecordsDisplay} 條記錄，第 {currentPageDisplay} / {totalPagesDisplay} 頁
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
@@ -674,16 +788,25 @@ export const TransactionsPage = () => {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setPagination({ ...pagination, page: pagination.page - 1 })}
-                      disabled={pagination.page === 1}
+                      onClick={() => {
+                        if (isLocalFilterActive) return;
+                        setPagination({ ...pagination, page: pagination.page - 1 });
+                      }}
+                      disabled={isLocalFilterActive || pagination.page === 1}
                     >
                       上一頁
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setPagination({ ...pagination, page: pagination.page + 1 })}
-                      disabled={pagination.page >= Math.ceil((data?.total || 0) / (data?.limit || 30))}
+                      onClick={() => {
+                        if (isLocalFilterActive) return;
+                        setPagination({ ...pagination, page: pagination.page + 1 });
+                      }}
+                      disabled={
+                        isLocalFilterActive ||
+                        pagination.page >= Math.ceil((data?.total || 0) / (data?.limit || 30))
+                      }
                     >
                       下一頁
                     </Button>
@@ -802,6 +925,17 @@ export const TransactionsPage = () => {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="filter-order-number">訂單編號</Label>
+              <Input
+                id="filter-order-number"
+                type="text"
+                placeholder="訂單編號"
+                value={tempFilters.orderNumber || ''}
+                onChange={(e) => setTempFilters({ ...tempFilters, orderNumber: e.target.value || undefined })}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="filter-assetType">交易對</Label>
               <Select
                 value={tempFilters.assetType || 'all'}
@@ -873,26 +1007,30 @@ export const TransactionsPage = () => {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="filter-managedMode">託管</Label>
-              <Select
-                value={tempFilters.managedMode === undefined ? 'all' : tempFilters.managedMode ? 'true' : 'false'}
-                onValueChange={(value) => {
-                  setTempFilters({
-                    ...tempFilters,
-                    managedMode: value === 'all' ? undefined : value === 'true',
-                  });
-                }}
-              >
-                <SelectTrigger id="filter-managedMode">
-                  <SelectValue placeholder="全部託管" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部託管</SelectItem>
-                  <SelectItem value="true">託管</SelectItem>
-                  <SelectItem value="false">非託管</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-[1fr_auto_1fr] gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="filter-from-date">開始時間</Label>
+                <Input
+                  id="filter-from-date"
+                  type="datetime-local"
+                  value={tempFilters.fromDate || ''}
+                  onChange={(e) => setTempFilters({ ...tempFilters, fromDate: e.target.value || undefined })}
+                  onFocus={handleDatePickerOpen}
+                  onClick={handleDatePickerOpen}
+                />
+              </div>
+              <div className="flex items-end justify-center pb-6 text-muted-foreground">~</div>
+              <div className="space-y-2">
+                <Label htmlFor="filter-to-date">結束時間</Label>
+                <Input
+                  id="filter-to-date"
+                  type="datetime-local"
+                  value={tempFilters.toDate || ''}
+                  onChange={(e) => setTempFilters({ ...tempFilters, toDate: e.target.value || undefined })}
+                  onFocus={handleDatePickerOpen}
+                  onClick={handleDatePickerOpen}
+                />
+              </div>
             </div>
 
             <div className="pt-2">
@@ -929,4 +1067,3 @@ export const TransactionsPage = () => {
     </>
   );
 };
-

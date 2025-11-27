@@ -34,6 +34,21 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
   const { api } = useAuth();
   const queryClient = useQueryClient();
 
+  const formatErrorMessage = (input: any): string => {
+    if (!input) return '更新失敗';
+    if (typeof input === 'string') return input;
+    if (typeof input === 'object') {
+      if (typeof input.message === 'string') return input.message;
+      if (typeof input.error === 'string') return input.error;
+      try {
+        return JSON.stringify(input);
+      } catch {
+        return '更新失敗';
+      }
+    }
+    return String(input);
+  };
+
   const [formData, setFormData] = useState({
     email: '',
     displayName: '',
@@ -44,6 +59,35 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // 解析並修正可能的圖片 URL（處理 http 在 https 下被阻擋、相對路徑等）
+  const buildImageUrl = (raw?: string | null): string | undefined => {
+    if (!raw) return undefined;
+    const val = String(raw);
+    // 絕對網址
+    if (/^https?:\/\//i.test(val)) {
+      if (window.location.protocol === 'https:' && val.startsWith('http://')) {
+        // 嘗試升級為 https 以避免混用內容被阻擋
+        return val.replace(/^http:\/\//i, 'https://');
+      }
+      return val;
+    }
+    // 相對路徑：以 API 的 origin 作為基底
+    try {
+      const api = appConfig.apiUrl || '';
+      let originBase: string;
+      if (/^https?:\/\//i.test(api)) {
+        const u = new URL(api);
+        originBase = `${u.protocol}//${u.host}`;
+      } else {
+        originBase = window.location.origin;
+      }
+      const normalized = val.startsWith('/') ? val : `/${val}`;
+      return `${originBase}${normalized}`;
+    } catch {
+      return val;
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -105,8 +149,12 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
       onOpenChange(false);
     },
     onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || '更新失敗';
-      setErrors({ general: message });
+      const message =
+        error?.response?.data?.message ??
+        error?.response?.data ??
+        error?.message ??
+        '更新失敗';
+      setErrors({ general: formatErrorMessage(message) });
     },
   });
 
@@ -133,7 +181,7 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
 
     const demoBalance = parseFloat(formData.demoBalance);
     if (isNaN(demoBalance) || demoBalance < 0) {
-      newErrors.demoBalance = '虚拟盘金額必須是非負數';
+      newErrors.demoBalance = '虛擬盤金額必須是非負數';
     }
 
     const realBalance = parseFloat(formData.realBalance);
@@ -169,7 +217,7 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
           <DialogHeader>
             <DialogTitle>編輯用戶</DialogTitle>
             <DialogDescription>
-              修改用戶信息和账户余额
+              修改用戶資料和帳戶餘額
             </DialogDescription>
           </DialogHeader>
 
@@ -234,14 +282,14 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
                   <SelectItem value="PENDING">待審核</SelectItem>
                   <SelectItem value="IN_REVIEW">審核中</SelectItem>
                   <SelectItem value="VERIFIED">驗證成功</SelectItem>
-                  <SelectItem value="REJECTED">验证失敗</SelectItem>
+                  <SelectItem value="REJECTED">驗證失敗</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="demoBalance">虚拟盘金額 ($) *</Label>
+                <Label htmlFor="demoBalance">模擬帳戶餘額（$）*</Label>
                 <Input
                   id="demoBalance"
                   type="number"
@@ -257,7 +305,7 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="realBalance">實際交易金額 ($) *</Label>
+                <Label htmlFor="realBalance">真實帳戶餘額（$）*</Label>
                 <Input
                   id="realBalance"
                   type="number"
@@ -273,32 +321,29 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
               </div>
             </div>
 
-            {/* 身份證信息 */}
+            {/* 身分驗證資料 */}
             {user && (
               <div className="mt-4 pt-4 border-t">
-                <h4 className="font-medium text-sm mb-3">身份證信息</h4>
+                <h4 className="font-medium text-sm mb-3">身分驗證資料</h4>
                 <div className="grid grid-cols-2 gap-4">
                   {/* 正面 */}
                   <div>
-                    <p className="text-sm text-gray-500 mb-2">身份證正面</p>
+                    <p className="text-sm text-gray-500 mb-2">身分證正面</p>
                     <img
-                      src={user.idCardFront ? (() => {
-                        // 如果已經是完整 URL，直接使用
-                        if (user.idCardFront.startsWith('http://') || user.idCardFront.startsWith('https://')) {
-                          return user.idCardFront;
-                        }
-                        // 如果是相對路徑，拼接 base URL（去掉 /api 部分）
-                        const baseUrl = appConfig.apiUrl.replace('/api', '');
-                        return `${baseUrl}${user.idCardFront}`;
-                      })() : '/id-card-placeholder.svg'}
-                      alt="身份證正面"
+                      src={user.idCardFront ? buildImageUrl(user.idCardFront) : '/id-card-placeholder.svg'}
+                      alt="身分證正面"
                       className={`w-full h-48 object-contain border rounded ${user.idCardFront ? 'cursor-pointer hover:opacity-80' : ''} transition-opacity`}
                       onClick={() => {
                         if (user.idCardFront) {
-                          const url = user.idCardFront.startsWith('http://') || user.idCardFront.startsWith('https://')
-                            ? user.idCardFront
-                            : `${appConfig.apiUrl.replace('/api', '')}${user.idCardFront}`;
+                          const url = buildImageUrl(user.idCardFront) || user.idCardFront;
                           window.open(url, '_blank');
+                        }
+                      }}
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        // 如果是 http 且當前為 https，嘗試升級
+                        if (el.src.startsWith('http://') && window.location.protocol === 'https:') {
+                          el.src = el.src.replace('http://', 'https://');
                         }
                       }}
                     />
@@ -306,25 +351,21 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
 
                   {/* 反面 */}
                   <div>
-                    <p className="text-sm text-gray-500 mb-2">身份證反面</p>
+                    <p className="text-sm text-gray-500 mb-2">身分證反面</p>
                     <img
-                      src={user.idCardBack ? (() => {
-                        // 如果已經是完整 URL，直接使用
-                        if (user.idCardBack.startsWith('http://') || user.idCardBack.startsWith('https://')) {
-                          return user.idCardBack;
-                        }
-                        // 如果是相對路徑，拼接 base URL（去掉 /api 部分）
-                        const baseUrl = appConfig.apiUrl.replace('/api', '');
-                        return `${baseUrl}${user.idCardBack}`;
-                      })() : '/id-card-placeholder.svg'}
-                      alt="身份證反面"
+                      src={user.idCardBack ? buildImageUrl(user.idCardBack) : '/id-card-placeholder.svg'}
+                      alt="身分證反面"
                       className={`w-full h-48 object-contain border rounded ${user.idCardBack ? 'cursor-pointer hover:opacity-80' : ''} transition-opacity`}
                       onClick={() => {
                         if (user.idCardBack) {
-                          const url = user.idCardBack.startsWith('http://') || user.idCardBack.startsWith('https://')
-                            ? user.idCardBack
-                            : `${appConfig.apiUrl.replace('/api', '')}${user.idCardBack}`;
+                          const url = buildImageUrl(user.idCardBack) || user.idCardBack;
                           window.open(url, '_blank');
+                        }
+                      }}
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        if (el.src.startsWith('http://') && window.location.protocol === 'https:') {
+                          el.src = el.src.replace('http://', 'https://');
                         }
                       }}
                     />

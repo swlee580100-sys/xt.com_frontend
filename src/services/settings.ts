@@ -10,6 +10,10 @@ import type {
   LatencyConfig,
   IpWhitelistConfig,
   UpdateIpWhitelistConfigDto,
+  ShareConfig,
+  UpdateShareConfigDto,
+  DepositAddressConfig,
+  UpdateDepositAddressConfigDto,
 } from '@/types/settings';
 
 export const settingsService = {
@@ -103,23 +107,88 @@ export const settingsService = {
   },
 
   /**
-   * 獲取IP白名單功能設置
+   * 獲取IP白名單配置
    */
   getIpWhitelistConfig: async (
     api: AxiosInstance,
   ): Promise<IpWhitelistConfig> => {
-    const response = await api.get('/admin/settings/ip-whitelist/config');
-    return response.data.data;
+    const response = await api.get('/admin/settings/ip-whitelist');
+    console.log('IP白名單配置原始响应:', response.data);
+    const data = response.data.data?.data || response.data.data || response.data;
+    console.log('解析后的IP白名單配置:', data);
+    return data;
   },
 
   /**
-   * 更新IP白名單功能設置
+   * 更新IP白名單配置
    */
   updateIpWhitelistConfig: async (
     api: AxiosInstance,
     data: UpdateIpWhitelistConfigDto,
-  ): Promise<void> => {
-    await api.put('/admin/settings/ip-whitelist/config', data);
+  ): Promise<IpWhitelistConfig> => {
+    const response = await api.put('/admin/settings/ip-whitelist', data);
+    console.log('更新IP白名單配置响应:', response.data);
+    const result = response.data.data?.data || response.data.data || response.data;
+    console.log('解析后的更新结果:', result);
+    return result;
+  },
+
+  /**
+   * 獲取分享配置
+   */
+  getShareConfig: async (api: AxiosInstance): Promise<ShareConfig> => {
+    const response = await api.get('/admin/settings/share/config');
+    console.log('分享配置原始响应:', response.data);
+    // 后端返回结构: { data: { data: {...} } }
+    // response.data 是 { data: {...} }
+    // 所以需要再取一层 .data
+    const data = response.data.data?.data || response.data.data || response.data;
+    console.log('解析后的分享配置:', data);
+    return data;
+  },
+
+  /**
+   * 更新分享配置
+   */
+  updateShareConfig: async (
+    api: AxiosInstance,
+    data: UpdateShareConfigDto,
+  ): Promise<ShareConfig> => {
+    const response = await api.put('/admin/settings/share/config', data);
+    console.log('更新分享配置响应:', response.data);
+    const result = response.data.data?.data || response.data.data || response.data;
+    console.log('解析后的更新结果:', result);
+    return result;
+  },
+
+  /**
+   * 獲取入金地址配置
+   */
+  getDepositAddressConfig: async (
+    api: AxiosInstance,
+  ): Promise<DepositAddressConfig> => {
+    const response = await api.get('/admin/settings/deposit/address');
+    console.log('入金地址原始响应:', response.data);
+    // 后端返回结构: { data: { data: {...} } }
+    // response.data 是 { data: {...} }
+    // 所以需要再取一层 .data
+    const data = response.data.data?.data || response.data.data || response.data;
+    console.log('解析后的入金地址配置:', data);
+    return data;
+  },
+
+  /**
+   * 更新入金地址配置
+   */
+  updateDepositAddressConfig: async (
+    api: AxiosInstance,
+    data: UpdateDepositAddressConfigDto,
+  ): Promise<DepositAddressConfig> => {
+    const response = await api.put('/admin/settings/deposit/address', data);
+    console.log('更新入金地址响应:', response.data);
+    const result = response.data.data?.data || response.data.data || response.data;
+    console.log('解析后的更新结果:', result);
+    return result;
   },
 };
 

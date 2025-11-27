@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   useReactTable,
@@ -12,16 +12,20 @@ import { MoreHorizontal, ChevronUp, ChevronDown, Pencil, Trash2, Plus } from 'lu
 import { useAuth } from '@/hooks/useAuth';
 import { settingsService } from '@/services/settings';
 import { adminService } from '@/services/admins';
-import { ipWhitelistService, type QueryIpWhitelistParams } from '@/services/ip-whitelist';
+import { cmsService } from '@/services/cms';
 import type {
-  UpdateTradingChannelsDto,
-  TradingChannel,
-  IpWhitelist,
+  // UpdateTradingChannelsDto, // 暫時停用 - 交易渠道功能未開放
+  // TradingChannel, // 暫時停用 - 交易渠道功能未開放
   IpWhitelistConfig,
   UpdateIpWhitelistConfigDto,
 } from '@/types/settings';
 import type { Admin, QueryAdminsParams } from '@/types/admin';
+import type {
+  TradingPerformanceEntry,
+  TradingPerformancePayload,
+} from '@/types/cms';
 import { cn } from '@/lib/utils';
+import { formatTaiwanDateTime } from '@/lib/date-utils';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -55,7 +59,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EditAdminDialog } from '@/components/admins/edit-admin-dialog';
-import { EditIpWhitelistDialog } from '@/components/ip-whitelist/edit-ip-whitelist-dialog';
 
 export const SettingsPage = () => {
   const { api } = useAuth();
@@ -71,77 +74,101 @@ export const SettingsPage = () => {
   const [adminToEdit, setAdminToEdit] = useState<Admin | null>(null);
   const [isCreatingAdmin, setIsCreatingAdmin] = useState(false);
 
-  // 交易渠道狀態
-  const [tradingChannels, setTradingChannels] = useState<TradingChannel[]>([]);
+  // 交易渠道狀態 - 暫時停用
+  // const [tradingChannels, setTradingChannels] = useState<TradingChannel[]>([]);
 
-  // 託管模式狀態
-  const [managedModeEnabled, setManagedModeEnabled] = useState(false);
+  // 託管模式狀態 - 暫時停用
+  // const [managedModeEnabled, setManagedModeEnabled] = useState(false);
 
-  // IP白名單狀態
-  const [ipWhitelistSorting, setIpWhitelistSorting] = useState<SortingState>([]);
-  const [ipWhitelistPagination, setIpWhitelistPagination] = useState({ page: 1, pageSize: 10 });
-  const [ipWhitelistSearch, setIpWhitelistSearch] = useState('');
-  const [deleteIpWhitelistDialogOpen, setDeleteIpWhitelistDialogOpen] = useState(false);
-  const [ipWhitelistToDelete, setIpWhitelistToDelete] = useState<IpWhitelist | null>(null);
-  const [editIpWhitelistDialogOpen, setEditIpWhitelistDialogOpen] = useState(false);
-  const [ipWhitelistToEdit, setIpWhitelistToEdit] = useState<IpWhitelist | null>(null);
-  const [isCreatingIpWhitelist, setIsCreatingIpWhitelist] = useState(false);
-  const [ipWhitelistEnabled, setIpWhitelistEnabled] = useState(false);
-
-  // 获取交易渠道設置
-  const { data: tradingChannelsData } = useQuery({
-    queryKey: ['settings', 'trading-channels'],
-    queryFn: () => settingsService.getTradingChannels(api),
-    onSuccess: (data) => {
-      if (data && data.length > 0) {
-        setTradingChannels(data);
-      } else {
-        setTradingChannels([
-          { name: 'Binance', enabled: true },
-          { name: 'Coinbase', enabled: false },
-        ]);
-      }
-    },
+  // IP白名單配置狀態
+  const [ipWhitelistConfig, setIpWhitelistConfig] = useState<IpWhitelistConfig>({
+    enabled: false,
+    ips: [],
+    description: ''
   });
+  const [ipWhitelistError, setIpWhitelistError] = useState<string | null>(null);
+  const [ipWhitelistSuccess, setIpWhitelistSuccess] = useState<string | null>(null);
 
-  // 获取託管模式設置
-  const { data: managedModeData } = useQuery({
-    queryKey: ['settings', 'managed-mode'],
-    queryFn: async () => {
-      const response = await api.get('/admin/settings/trading/managed-mode');
-      return response.data.data;
-    },
-    onSuccess: (data) => {
-      if (data) {
-        setManagedModeEnabled(data.enabled ?? false);
-      }
-    },
+  // 交易時長/盈利率管理狀態
+  const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
+  const [editingPerformance, setEditingPerformance] = useState<TradingPerformanceEntry | null>(null);
+  const [performanceFormData, setPerformanceFormData] = useState({
+    tradeDuration: '0',
+    winRate: '0'
   });
+  const [performanceFormErrors, setPerformanceFormErrors] = useState<Record<string, string>>({});
 
-  // 獲取IP白名單功能設置
-  const { data: ipWhitelistConfigData } = useQuery({
+  // 获取交易渠道設置 - 暫時停用
+  // const { data: tradingChannelsData } = useQuery({
+  //   queryKey: ['settings', 'trading-channels'],
+  //   queryFn: () => settingsService.getTradingChannels(api),
+  //   onSuccess: (data) => {
+  //     if (data && data.length > 0) {
+  //       setTradingChannels(data);
+  //     } else {
+  //       setTradingChannels([
+  //         { name: 'Binance', enabled: true },
+  //         { name: 'Coinbase', enabled: false },
+  //       ]);
+  //     }
+  //   },
+  // });
+
+  // 获取託管模式設置 - 暫時停用
+  // const { data: managedModeData } = useQuery({
+  //   queryKey: ['settings', 'managed-mode'],
+  //   queryFn: async () => {
+  //     const response = await api.get('/admin/settings/trading/managed-mode');
+  //     return response.data.data;
+  //   },
+  //   onSuccess: (data) => {
+  //     if (data) {
+  //       setManagedModeEnabled(data.enabled ?? false);
+  //     }
+  //   },
+  // });
+
+  // 獲取IP白名單配置
+  const {
+    data: ipWhitelistConfigData,
+    isLoading: ipWhitelistLoading,
+    error: ipWhitelistQueryError
+  } = useQuery({
     queryKey: ['settings', 'ip-whitelist-config'],
     queryFn: () => settingsService.getIpWhitelistConfig(api),
-    onSuccess: (data) => {
-      if (data) {
-        setIpWhitelistEnabled(data.enabled ?? false);
-      }
-    },
   });
 
-  // IP白名單列表查詢
-  const ipWhitelistQueryParams: QueryIpWhitelistParams = {
-    page: ipWhitelistPagination.page,
-    pageSize: ipWhitelistPagination.pageSize,
-    search: ipWhitelistSearch || undefined,
-    isActive: undefined, // 可以根據需要添加篩選
-  };
+  useEffect(() => {
+    console.log('IP白名單配置数据更新:', { ipWhitelistConfigData, ipWhitelistLoading });
+    if (ipWhitelistConfigData) {
+      const config = {
+        enabled: ipWhitelistConfigData.enabled ?? false,
+        ips: ipWhitelistConfigData.ips || [],
+        description: ipWhitelistConfigData.description || ''
+      };
+      console.log('设置IP白名單配置为:', config);
+      setIpWhitelistConfig(config);
+      setIpWhitelistError(null);
+    }
+  }, [ipWhitelistConfigData, ipWhitelistLoading]);
 
-  const { data: ipWhitelistData, isLoading: ipWhitelistLoading, error: ipWhitelistError } = useQuery({
-    queryKey: ['ip-whitelist', ipWhitelistQueryParams],
-    queryFn: () => ipWhitelistService.list(api, ipWhitelistQueryParams),
-    enabled: true, // 始終查詢，即使功能未啟用
-  });
+  useEffect(() => {
+    if (ipWhitelistQueryError) {
+      const message =
+        ipWhitelistQueryError instanceof Error
+          ? ipWhitelistQueryError.message
+          : 'IP白名單配置載入失敗，請稍後再試';
+      setIpWhitelistError(message);
+    } else {
+      setIpWhitelistError(null);
+    }
+  }, [ipWhitelistQueryError]);
+
+  useEffect(() => {
+    if (!ipWhitelistSuccess) return;
+    const timer = window.setTimeout(() => setIpWhitelistSuccess(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [ipWhitelistSuccess]);
 
   // 管理員列表查詢
   const adminQueryParams: QueryAdminsParams = {
@@ -157,6 +184,28 @@ export const SettingsPage = () => {
     queryFn: () => adminService.list(api, adminQueryParams),
   });
 
+  // 调试：打印管理员数据
+  useEffect(() => {
+    console.log('管理员数据更新:', { adminsData, adminsLoading, adminsError });
+    if (adminsData) {
+      console.log('管理员列表数据结构:', {
+        data: adminsData.data,
+        total: adminsData.total,
+        page: adminsData.page,
+        totalPages: adminsData.totalPages
+      });
+    }
+  }, [adminsData, adminsLoading, adminsError]);
+
+  // 獲取交易時長/盈利率配置
+  const {
+    data: tradingPerformance = [],
+    isLoading: tradingPerformanceLoading
+  } = useQuery({
+    queryKey: ['settings', 'trading-performance'],
+    queryFn: () => cmsService.listTradingPerformance(api)
+  });
+
   // Mutations
   const deleteAdminMutation = useMutation({
     mutationFn: (id: string) => adminService.delete(api, id),
@@ -167,45 +216,84 @@ export const SettingsPage = () => {
     },
   });
 
-  const updateTradingChannelsMutation = useMutation({
-    mutationFn: (data: UpdateTradingChannelsDto) =>
-      settingsService.updateTradingChannels(api, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'trading-channels'] });
-      alert('交易渠道設置已更新');
-    },
-  });
+  // 交易渠道更新 - 暫時停用
+  // const updateTradingChannelsMutation = useMutation({
+  //   mutationFn: (data: UpdateTradingChannelsDto) =>
+  //     settingsService.updateTradingChannels(api, data),
+  //   onSuccess: () => {
+  //     queryClient.invalidateQueries({ queryKey: ['settings', 'trading-channels'] });
+  //     alert('交易渠道設置已更新');
+  //   },
+  // });
 
-  const updateManagedModeMutation = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      await api.put('/admin/settings/trading/managed-mode', { enabled });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'managed-mode'] });
-      setManagedModeEnabled(managedModeEnabled);
-      alert('託管模式設置已更新');
-    },
-  });
+  // 託管模式更新 - 暫時停用
+  // const updateManagedModeMutation = useMutation({
+  //   mutationFn: async (enabled: boolean) => {
+  //     await api.put('/admin/settings/trading/managed-mode', { enabled });
+  //   },
+  //   onSuccess: () => {
+  //     queryClient.invalidateQueries({ queryKey: ['settings', 'managed-mode'] });
+  //     setManagedModeEnabled(managedModeEnabled);
+  //     alert('託管模式設置已更新');
+  //   },
+  // });
 
-  // IP白名單相關 Mutations
-  const deleteIpWhitelistMutation = useMutation({
-    mutationFn: (id: string) => ipWhitelistService.delete(api, id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ip-whitelist'] });
-      setDeleteIpWhitelistDialogOpen(false);
-      setIpWhitelistToDelete(null);
-    },
-  });
-
+  // IP白名單配置更新
   const updateIpWhitelistConfigMutation = useMutation({
     mutationFn: (data: UpdateIpWhitelistConfigDto) =>
       settingsService.updateIpWhitelistConfig(api, data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'ip-whitelist-config'] });
-      setIpWhitelistEnabled(ipWhitelistEnabled);
-      alert('IP白名單設置已更新');
+      setIpWhitelistError(null);
+      setIpWhitelistSuccess('IP白名單配置已更新');
+      setIpWhitelistConfig({
+        enabled: data.enabled ?? false,
+        ips: data.ips || [],
+        description: data.description || ''
+      });
+    },
+    onError: (error: any) => {
+      const message = error?.response?.data?.message || error?.message || '更新失敗，請稍後再試';
+      setIpWhitelistSuccess(null);
+      setIpWhitelistError(message);
     },
   });
+
+  // 交易時長/盈利率管理 Mutations
+  const createPerformanceMutation = useMutation({
+    mutationFn: (payload: TradingPerformancePayload) => cmsService.createTradingPerformance(api, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'trading-performance'] });
+      setPerformanceDialogOpen(false);
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.message || error.message || '新增失敗，請稍後再試';
+      setPerformanceFormErrors({ general: message });
+    }
+  });
+
+  const updatePerformanceMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: TradingPerformancePayload }) =>
+      cmsService.updateTradingPerformance(api, id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'trading-performance'] });
+      setPerformanceDialogOpen(false);
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.message || error.message || '更新失敗，請稍後再試';
+      setPerformanceFormErrors({ general: message });
+    }
+  });
+
+  const deletePerformanceMutation = useMutation({
+    mutationFn: (id: string) => cmsService.deleteTradingPerformance(api, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'trading-performance'] });
+    }
+  });
+
+  const isPerformanceSubmitting =
+    createPerformanceMutation.isPending || updatePerformanceMutation.isPending;
 
   // 管理員表格欄位
   const adminColumns: ColumnDef<Admin>[] = [
@@ -239,7 +327,7 @@ export const SettingsPage = () => {
       header: '最後登入',
       cell: ({ row }) => {
         const date = row.getValue('lastLoginAt') as string | null;
-        return date ? new Date(date).toLocaleString('zh-TW') : '從未登入';
+        return date ? formatTaiwanDateTime(date) : '從未登入';
       },
     },
     {
@@ -255,7 +343,7 @@ export const SettingsPage = () => {
       header: '創建時間',
       cell: ({ row }) => {
         const date = row.getValue('createdAt') as string;
-        return new Date(date).toLocaleString('zh-TW');
+        return formatTaiwanDateTime(date);
       },
     },
     {
@@ -318,126 +406,123 @@ export const SettingsPage = () => {
     pageCount: adminsData?.totalPages || 0,
   });
 
-  // IP白名單表格欄位
-  const ipWhitelistColumns: ColumnDef<IpWhitelist>[] = [
-    {
-      accessorKey: 'ipAddress',
-      header: 'IP地址',
-      cell: ({ row }) => (
-        <div className="font-mono font-medium">{row.getValue('ipAddress')}</div>
-      ),
-    },
-    {
-      accessorKey: 'description',
-      header: '描述',
-      cell: ({ row }) => row.getValue('description') || '-',
-    },
-    {
-      accessorKey: 'isActive',
-      header: '狀態',
-      cell: ({ row }) => {
-        const isActive = row.getValue('isActive');
-        return (
-          <Badge variant={isActive ? 'success' : 'destructive'}>
-            {isActive ? '啟用' : '停用'}
-          </Badge>
-        );
-      },
-      meta: {
-        minWidth: '90px',
-      },
-    },
-    {
-      accessorKey: 'createdAt',
-      header: '創建時間',
-      cell: ({ row }) => {
-        const date = row.getValue('createdAt') as string;
-        return new Date(date).toLocaleString('zh-TW');
-      },
-    },
-    {
-      id: 'actions',
-      cell: ({ row }) => {
-        const ipWhitelist = row.original;
-        return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
-                <span className="sr-only">打開菜單</span>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>操作</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => navigator.clipboard.writeText(ipWhitelist.id)}>
-                複製ID
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigator.clipboard.writeText(ipWhitelist.ipAddress)}>
-                複製IP地址
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  setIpWhitelistToEdit(ipWhitelist);
-                  setIsCreatingIpWhitelist(false);
-                  setEditIpWhitelistDialogOpen(true);
-                }}
-              >
-                <Pencil className="mr-2 h-4 w-4" />
-                編輯
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600"
-                onClick={() => {
-                  setIpWhitelistToDelete(ipWhitelist);
-                  setDeleteIpWhitelistDialogOpen(true);
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                刪除
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        );
-      },
-    },
-  ];
+  // IP白名單配置處理函數
+  const handleIpWhitelistSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
 
-  // IP白名單表格實例
-  const ipWhitelistTable = useReactTable({
-    data: ipWhitelistData?.data || [],
-    columns: ipWhitelistColumns,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    onSortingChange: setIpWhitelistSorting,
-    state: {
-      sorting: ipWhitelistSorting,
-    },
-    manualPagination: true,
-    pageCount: ipWhitelistData?.totalPages || 0,
-  });
+    // 驗證IP列表
+    const ips = ipWhitelistConfig.ips.filter(ip => ip.trim() !== '');
 
-  const handleUpdateTradingChannels = () => {
-    updateTradingChannelsMutation.mutate({ channels: tradingChannels });
+    updateIpWhitelistConfigMutation.mutate({
+      config: {
+        enabled: ipWhitelistConfig.enabled,
+        ips,
+        description: ipWhitelistConfig.description?.trim() || undefined
+      }
+    });
   };
 
-  const addTradingChannel = () => {
-    setTradingChannels([
-      ...tradingChannels,
-      { name: '', enabled: false },
-    ]);
+  const handleIpListChange = (value: string) => {
+    // 將textarea的值按行分割成IP數組
+    const ips = value.split('\n').map(ip => ip.trim()).filter(ip => ip !== '');
+    setIpWhitelistConfig(prev => ({ ...prev, ips }));
+    setIpWhitelistError(null);
+    setIpWhitelistSuccess(null);
   };
 
-  const removeTradingChannel = (index: number) => {
-    setTradingChannels(tradingChannels.filter((_, i) => i !== index));
+  // 交易時長/盈利率管理處理函數
+  const handlePerformanceDialogOpenChange = (open: boolean) => {
+    setPerformanceDialogOpen(open);
+    if (!open) {
+      setEditingPerformance(null);
+      setPerformanceFormErrors({});
+      setPerformanceFormData({ tradeDuration: '0', winRate: '0' });
+    }
   };
 
-  const updateTradingChannel = (index: number, updates: Partial<TradingChannel>) => {
-    const updated = [...tradingChannels];
-    updated[index] = { ...updated[index], ...updates };
-    setTradingChannels(updated);
+  const handleCreatePerformance = () => {
+    setEditingPerformance(null);
+    setPerformanceFormErrors({});
+    setPerformanceFormData({ tradeDuration: '0', winRate: '0' });
+    setPerformanceDialogOpen(true);
   };
+
+  const handleEditPerformance = (entry: TradingPerformanceEntry) => {
+    setEditingPerformance(entry);
+    setPerformanceFormErrors({});
+    setPerformanceFormData({
+      tradeDuration: String(entry.tradeDuration),
+      winRate: entry.winRate.toString()
+    });
+    setPerformanceDialogOpen(true);
+  };
+
+  const validatePerformanceForm = () => {
+    const errors: Record<string, string> = {};
+
+    const duration = Number(performanceFormData.tradeDuration);
+    if (!Number.isInteger(duration) || duration < 1 || duration > 300) {
+      errors.tradeDuration = '交易時長必須是 1~300 的整數（單位：秒）';
+    }
+
+    const winRate = Number(performanceFormData.winRate);
+    if (Number.isNaN(winRate) || winRate < 0 || winRate > 100) {
+      errors.winRate = '盈利率需在 0-100 之間';
+    }
+
+    return errors;
+  };
+
+  const handlePerformanceSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const errors = validatePerformanceForm();
+
+    if (Object.keys(errors).length > 0) {
+      setPerformanceFormErrors(errors);
+      return;
+    }
+
+    const payload: TradingPerformancePayload = {
+      tradeDuration: Number(performanceFormData.tradeDuration),
+      winRate: Number(performanceFormData.winRate)
+    };
+
+    if (editingPerformance) {
+      updatePerformanceMutation.mutate({ id: editingPerformance.id, payload });
+    } else {
+      createPerformanceMutation.mutate(payload);
+    }
+  };
+
+  const handlePerformanceDelete = (entry: TradingPerformanceEntry) => {
+    if (deletePerformanceMutation.isPending) return;
+    const confirmed = window.confirm(`確認刪除交易時長 ${entry.tradeDuration} 秒的配置嗎？`);
+    if (confirmed) {
+      deletePerformanceMutation.mutate(entry.id);
+    }
+  };
+
+  // 交易渠道處理函數 - 暫時停用
+  // const handleUpdateTradingChannels = () => {
+  //   updateTradingChannelsMutation.mutate({ channels: tradingChannels });
+  // };
+
+  // const addTradingChannel = () => {
+  //   setTradingChannels([
+  //     ...tradingChannels,
+  //     { name: '', enabled: false },
+  //   ]);
+  // };
+
+  // const removeTradingChannel = (index: number) => {
+  //   setTradingChannels(tradingChannels.filter((_, i) => i !== index));
+  // };
+
+  // const updateTradingChannel = (index: number, updates: Partial<TradingChannel>) => {
+  //   const updated = [...tradingChannels];
+  //   updated[index] = { ...updated[index], ...updates };
+  //   setTradingChannels(updated);
+  // };
 
   return (
     <div className="space-y-6">
@@ -450,8 +535,11 @@ export const SettingsPage = () => {
         <TabsList>
           <TabsTrigger value="admin">管理員帳號</TabsTrigger>
           <TabsTrigger value="ip-whitelist">IP白名單</TabsTrigger>
-          <TabsTrigger value="trading">交易渠道</TabsTrigger>
-          <TabsTrigger value="managed-mode">託管模式</TabsTrigger>
+          <TabsTrigger value="trading-performance">交易時長/盈利率</TabsTrigger>
+          {/* 暫時停用 - 交易渠道功能未開放 */}
+          {/* <TabsTrigger value="trading">交易渠道</TabsTrigger> */}
+          {/* 暫時停用 - 託管模式功能未開放 */}
+          {/* <TabsTrigger value="managed-mode">託管模式</TabsTrigger> */}
         </TabsList>
 
         {/* 管理員帳號設置 */}
@@ -599,8 +687,8 @@ export const SettingsPage = () => {
           </Card>
         </TabsContent>
 
-        {/* 交易渠道設置 */}
-        <TabsContent value="trading">
+        {/* 交易渠道設置 - 暫時停用 */}
+        {/* <TabsContent value="trading">
           <Card>
             <CardHeader>
               <CardTitle>交易渠道設置</CardTitle>
@@ -686,10 +774,10 @@ export const SettingsPage = () => {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent> */}
 
-        {/* 託管模式設置 */}
-        <TabsContent value="managed-mode">
+        {/* 託管模式設置 - 暫時停用 */}
+        {/* <TabsContent value="managed-mode">
           <Card>
             <CardHeader>
               <CardTitle>託管模式設置</CardTitle>
@@ -720,175 +808,177 @@ export const SettingsPage = () => {
               )}
             </CardContent>
           </Card>
+        </TabsContent> */}
+
+
+        {/* IP白名單配置 */}
+        <TabsContent value="ip-whitelist">
+          <Card>
+            <CardHeader>
+              <CardTitle>IP白名單配置</CardTitle>
+              <CardDescription>
+                設置允許登入的IP地址，支持單個IP（如 192.168.1.1）或CIDR格式（如 192.168.1.0/24）
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {ipWhitelistLoading ? (
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  正在載入IP白名單配置...
+                </div>
+              ) : (
+                <form className="space-y-4" onSubmit={handleIpWhitelistSubmit}>
+                  {ipWhitelistSuccess ? (
+                    <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+                      {ipWhitelistSuccess}
+                    </div>
+                  ) : null}
+
+                  {ipWhitelistError ? (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      {ipWhitelistError}
+                    </div>
+                  ) : null}
+
+                  <div className="flex items-center justify-between pb-4 border-b">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="ip-whitelist-enabled">啟用IP白名單</Label>
+                      <p className="text-sm text-muted-foreground">
+                        啟用後，只有白名單中的IP地址才能登入管理後台
+                      </p>
+                    </div>
+                    <Switch
+                      id="ip-whitelist-enabled"
+                      checked={ipWhitelistConfig.enabled}
+                      onCheckedChange={(checked) => {
+                        setIpWhitelistConfig(prev => ({ ...prev, enabled: checked }));
+                        setIpWhitelistError(null);
+                        setIpWhitelistSuccess(null);
+                      }}
+                      disabled={updateIpWhitelistConfigMutation.isPending}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ip-whitelist-description">描述</Label>
+                    <Input
+                      id="ip-whitelist-description"
+                      value={ipWhitelistConfig.description || ''}
+                      onChange={event => {
+                        setIpWhitelistConfig(prev => ({ ...prev, description: event.target.value }));
+                        setIpWhitelistError(null);
+                        setIpWhitelistSuccess(null);
+                      }}
+                      placeholder="例如：生產環境白名單"
+                      disabled={updateIpWhitelistConfigMutation.isPending}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      選填，用於說明此白名單的用途
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ip-whitelist-ips">IP地址列表</Label>
+                    <textarea
+                      id="ip-whitelist-ips"
+                      value={ipWhitelistConfig.ips.join('\n')}
+                      onChange={event => handleIpListChange(event.target.value)}
+                      rows={10}
+                      className="min-h-[200px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="每行一個IP地址，例如：&#10;127.0.0.1&#10;192.168.1.0/24&#10;10.0.0.1"
+                      disabled={updateIpWhitelistConfigMutation.isPending}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      每行輸入一個IP地址，支持單個IP或CIDR格式（如 192.168.1.0/24）
+                    </p>
+                    {ipWhitelistConfig.ips.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        當前已配置 {ipWhitelistConfig.ips.length} 個IP地址
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="submit" disabled={updateIpWhitelistConfigMutation.isPending}>
+                      {updateIpWhitelistConfigMutation.isPending ? '儲存中…' : '保存IP白名單配置'}
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
-
-        {/* IP白名單管理 */}
-        <TabsContent value="ip-whitelist">
+        {/* 交易時長/盈利率管理 */}
+        <TabsContent value="trading-performance">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>IP白名單管理</CardTitle>
+                  <CardTitle>交易時長/盈利率管理</CardTitle>
                   <CardDescription>
-                    管理允許登入的IP地址，只有白名單中的IP才能登入系統
+                    配置不同交易時長對應的盈利率，用於系統交易邏輯
                   </CardDescription>
                 </div>
-                <Button
-                  onClick={() => {
-                    setIpWhitelistToEdit(null);
-                    setIsCreatingIpWhitelist(true);
-                    setEditIpWhitelistDialogOpen(true);
-                  }}
-                >
+                <Button onClick={handleCreatePerformance}>
                   <Plus className="mr-2 h-4 w-4" />
-                  新增IP
+                  新增配置
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {/* IP白名單功能開關 */}
-              <div className="flex items-center justify-between pb-4 border-b">
-                <div className="space-y-0.5">
-                  <Label htmlFor="ip-whitelist-enabled">啟用IP白名單</Label>
-                  <p className="text-sm text-muted-foreground">
-                    啟用後，只有白名單中的IP地址才能登入管理後台
-                  </p>
+            <CardContent>
+              {tradingPerformanceLoading ? (
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  正在載入交易時長配置...
                 </div>
-                <Switch
-                  id="ip-whitelist-enabled"
-                  checked={ipWhitelistEnabled}
-                  onCheckedChange={(checked) => {
-                    setIpWhitelistEnabled(checked);
-                    updateIpWhitelistConfigMutation.mutate({
-                      config: { enabled: checked },
-                    });
-                  }}
-                  disabled={updateIpWhitelistConfigMutation.isPending}
-                />
-                </div>
-
-              {ipWhitelistLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="text-muted-foreground">載入中...</div>
-                </div>
-              ) : ipWhitelistError ? (
-                <div className="text-red-600">
-                  載入失敗: {(ipWhitelistError as Error).message}
+              ) : tradingPerformance.length === 0 ? (
+                <div className="flex h-32 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                  暫無交易時長配置，點擊右上角按鈕新增一條吧。
                 </div>
               ) : (
-                <>
-                  <div className="mb-4">
-                  <Input
-                      type="text"
-                      placeholder="搜索IP地址或描述..."
-                      value={ipWhitelistSearch}
-                      onChange={(e) => {
-                        setIpWhitelistSearch(e.target.value);
-                        setIpWhitelistPagination({ ...ipWhitelistPagination, page: 1 });
-                      }}
-                      className="max-w-sm"
-                    />
-                </div>
+                <div className="space-y-4">
                   <div className="rounded-md border overflow-auto">
                     <Table>
                       <TableHeader>
-                        {ipWhitelistTable.getHeaderGroups().map((headerGroup) => (
-                          <TableRow key={headerGroup.id}>
-                            {headerGroup.headers.map((header) => {
-                              const meta = header.column.columnDef.meta as { minWidth?: string } | undefined;
-                              return (
-                                <TableHead
-                                  key={header.id}
-                                  style={meta?.minWidth ? { minWidth: meta.minWidth } : undefined}
-                                >
-                                  {header.isPlaceholder ? null : (
-                                    <div
-                                      className={cn(
-                                        'whitespace-nowrap',
-                                        header.column.getCanSort()
-                                          ? 'cursor-pointer select-none flex items-center gap-2'
-                                          : ''
-                                      )}
-                                      onClick={header.column.getToggleSortingHandler()}
-                                    >
-                                      {flexRender(
-                                        header.column.columnDef.header,
-                                        header.getContext(),
-                                      )}
-                                      {header.column.getCanSort() && (
-                                        <span className="ml-2 flex-shrink-0">
-                                          {header.column.getIsSorted() === 'asc' ? (
-                                            <ChevronUp className="h-4 w-4" />
-                                          ) : header.column.getIsSorted() === 'desc' ? (
-                                            <ChevronDown className="h-4 w-4" />
-                                          ) : null}
-                                        </span>
-                                      )}
-              </div>
-                                  )}
-                                </TableHead>
-                              );
-                            })}
-                          </TableRow>
-                        ))}
+                        <TableRow>
+                          <TableHead className="w-40">交易時長 (秒)</TableHead>
+                          <TableHead className="w-32">盈利率 (%)</TableHead>
+                          <TableHead className="w-40">更新時間</TableHead>
+                          <TableHead className="w-32 text-right">操作</TableHead>
+                        </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {ipWhitelistTable.getRowModel().rows?.length ? (
-                          ipWhitelistTable.getRowModel().rows.map((row) => (
-                            <TableRow key={row.id}>
-                              {row.getVisibleCells().map((cell) => {
-                                const meta = cell.column.columnDef.meta as { minWidth?: string } | undefined;
-                                return (
-                                  <TableCell
-                                    key={cell.id}
-                                    style={meta?.minWidth ? { minWidth: meta.minWidth } : undefined}
-                                  >
-                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                  </TableCell>
-                                );
-                              })}
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell colSpan={ipWhitelistColumns.length} className="h-24 text-center">
-                              沒有找到IP白名單記錄
+                        {tradingPerformance.map(entry => (
+                          <TableRow key={entry.id}>
+                            <TableCell className="font-medium">{entry.tradeDuration}</TableCell>
+                            <TableCell>{entry.winRate.toFixed(2)}%</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {formatTaiwanDateTime(entry.updatedAt)}
+                            </TableCell>
+                            <TableCell className="flex items-center justify-end gap-2">
+                              <Button size="sm" variant="ghost" onClick={() => handleEditPerformance(entry)}>
+                                <Pencil className="mr-1 h-4 w-4" />
+                                編輯
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => handlePerformanceDelete(entry)}
+                                disabled={deletePerformanceMutation.isPending}
+                              >
+                                <Trash2 className="mr-1 h-4 w-4" />
+                                刪除
+                              </Button>
                             </TableCell>
                           </TableRow>
-                        )}
+                        ))}
                       </TableBody>
                     </Table>
                   </div>
-
-                  {/* Pagination */}
-                  <div className="flex items-center justify-between space-x-2 py-4">
-                    <div className="text-sm text-muted-foreground">
-                      共 {ipWhitelistData?.total || 0} 條記錄，第 {ipWhitelistData?.page || 0} / {ipWhitelistData?.totalPages || 0} 頁
-                    </div>
-                    <div className="flex gap-2">
-              <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setIpWhitelistPagination({ ...ipWhitelistPagination, page: ipWhitelistPagination.page - 1 })}
-                        disabled={ipWhitelistPagination.page === 1}
-              >
-                        上一頁
-              </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setIpWhitelistPagination({ ...ipWhitelistPagination, page: ipWhitelistPagination.page + 1 })}
-                        disabled={ipWhitelistPagination.page >= (ipWhitelistData?.totalPages || 0)}
-                      >
-                        下一頁
-                      </Button>
-                    </div>
-                  </div>
-                </>
+                </div>
               )}
-      </CardContent>
-    </Card>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -925,38 +1015,87 @@ export const SettingsPage = () => {
         isCreating={isCreatingAdmin}
       />
 
-      {/* Delete IP Whitelist Confirmation Dialog */}
-      <Dialog open={deleteIpWhitelistDialogOpen} onOpenChange={setDeleteIpWhitelistDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>確認刪除</DialogTitle>
-            <DialogDescription>
-              您確定要刪除IP白名單 "{ipWhitelistToDelete?.ipAddress}" 嗎？
-              此操作無法撤銷。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteIpWhitelistDialogOpen(false)}>
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => ipWhitelistToDelete && deleteIpWhitelistMutation.mutate(ipWhitelistToDelete.id)}
-              disabled={deleteIpWhitelistMutation.isPending}
-            >
-              {deleteIpWhitelistMutation.isPending ? '刪除中...' : '確認刪除'}
-            </Button>
-          </DialogFooter>
+      {/* Trading Performance Dialog */}
+      <Dialog open={performanceDialogOpen} onOpenChange={handlePerformanceDialogOpenChange}>
+        <DialogContent className="sm:max-w-[420px]">
+          <form onSubmit={handlePerformanceSubmit} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>
+                {editingPerformance ? '編輯交易時長配置' : '新增交易時長配置'}
+              </DialogTitle>
+            </DialogHeader>
+
+            {performanceFormErrors.general && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {performanceFormErrors.general}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="performance-duration">交易時長 (秒)</Label>
+              <Input
+                id="performance-duration"
+                type="number"
+                min={1}
+                max={300}
+                value={performanceFormData.tradeDuration}
+                onChange={event =>
+                  setPerformanceFormData(prev => ({
+                    ...prev,
+                    tradeDuration: event.target.value
+                  }))
+                }
+                disabled={isPerformanceSubmitting}
+              />
+              {performanceFormErrors.tradeDuration ? (
+                <p className="text-sm text-destructive">
+                  {performanceFormErrors.tradeDuration}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">可設置 1~300 的整數，單位為秒</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="performance-winRate">盈利率 (%)</Label>
+              <Input
+                id="performance-winRate"
+                type="number"
+                min={0}
+                max={100}
+                step={0.01}
+                value={performanceFormData.winRate}
+                onChange={event =>
+                  setPerformanceFormData(prev => ({
+                    ...prev,
+                    winRate: event.target.value
+                  }))
+                }
+                disabled={isPerformanceSubmitting}
+              />
+              {performanceFormErrors.winRate ? (
+                <p className="text-sm text-destructive">{performanceFormErrors.winRate}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">範圍 0-100，可保留兩位小數</p>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={isPerformanceSubmitting}
+                onClick={() => handlePerformanceDialogOpenChange(false)}
+              >
+                取消
+              </Button>
+              <Button type="submit" disabled={isPerformanceSubmitting}>
+                {isPerformanceSubmitting ? '提交中…' : editingPerformance ? '保存修改' : '創建'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
-
-      {/* Edit IP Whitelist Dialog */}
-      <EditIpWhitelistDialog
-        ipWhitelist={ipWhitelistToEdit}
-        open={editIpWhitelistDialogOpen}
-        onOpenChange={setEditIpWhitelistDialogOpen}
-        isCreating={isCreatingIpWhitelist}
-      />
     </div>
   );
 };

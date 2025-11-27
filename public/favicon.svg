@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <!-- Black rounded square background -->
+  <rect width="256" height="256" rx="48" fill="#000000"/>
+  <!-- White lightning bolt - centered with padding using nested SVG -->
+  <svg x="32" y="32" width="192" height="192" viewBox="0 0 24 24" fill="none">
+    <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" fill="white"/>
+  </svg>
+</svg>

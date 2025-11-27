@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { Eye, EyeOff } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ export const LoginPage = () => {
   const navigate = useNavigate();
   const { login, loading, isAuthenticated } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     handleSubmit,
@@ -52,7 +54,7 @@ export const LoginPage = () => {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>CT 二元期權後台管理</CardTitle>
+          <CardTitle>XT 二元期權後台管理</CardTitle>
           <CardDescription>訪問管理控制台</CardDescription>
         </CardHeader>
         <CardContent>
@@ -64,7 +66,22 @@ export const LoginPage = () => {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">密碼</Label>
-              <Input id="password" type="password" {...register('password')} />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  {...register('password')}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(prev => !prev)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground"
+                  aria-label={showPassword ? '隱藏密碼' : '顯示密碼'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               {errors.password && (
                 <p className="text-sm text-destructive">{errors.password.message}</p>
               )}

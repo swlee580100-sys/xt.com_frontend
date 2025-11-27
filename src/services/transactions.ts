@@ -4,6 +4,9 @@ import type {
   PaginatedTransactionsResponse,
   QueryTransactionsParams,
   SettleTransactionDto,
+  ForceSettleDto,
+  CreateTransactionDto,
+  UpdateTransactionDto,
 } from '@/types/transaction';
 
 export const transactionService = {
@@ -42,6 +45,18 @@ export const transactionService = {
   },
 
   /**
+   * 管理端強制結算交易
+   */
+  forceSettle: async (
+    api: AxiosInstance,
+    orderNumber: string,
+    data: ForceSettleDto = {}
+  ): Promise<Transaction> => {
+    const response = await api.post(`/admin/transactions/${orderNumber}/force-settle`, data);
+    return response.data.data;
+  },
+
+  /**
    * 取消交易
    */
   cancel: async (api: AxiosInstance, orderNumber: string): Promise<Transaction> => {
@@ -54,6 +69,29 @@ export const transactionService = {
    */
   getStatistics: async (api: AxiosInstance) => {
     const response = await api.get('/transactions/statistics');
+    return response.data.data;
+  },
+
+  /**
+   * 創建交易（管理端）
+   */
+  create: async (
+    api: AxiosInstance,
+    data: CreateTransactionDto,
+  ): Promise<Transaction> => {
+    const response = await api.post('/admin/transactions/create', data);
+    return response.data.data;
+  },
+
+  /**
+   * 更新交易（管理端）
+   */
+  update: async (
+    api: AxiosInstance,
+    orderNumber: string,
+    data: UpdateTransactionDto,
+  ): Promise<Transaction> => {
+    const response = await api.put(`/admin/transactions/${orderNumber}`, data);
     return response.data.data;
   },
 };

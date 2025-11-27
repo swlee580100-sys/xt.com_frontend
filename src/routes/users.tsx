@@ -15,10 +15,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { userService } from '@/services/users';
 import type { User, QueryUsersParams } from '@/types/user';
 import { cn } from '@/lib/utils';
+import { formatTaiwanDateTime } from '@/lib/date-utils';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -54,10 +62,26 @@ export const UsersPage = () => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10 });
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [verificationFilter, setVerificationFilter] = useState<'all' | 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED'>('all');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
+  const registrationSortValue =
+    sorting[0]?.id === 'createdAt'
+      ? sorting[0]?.desc
+        ? 'newest'
+        : 'oldest'
+      : 'none';
+
+  const handleRegistrationSortChange = (value: 'none' | 'newest' | 'oldest') => {
+    if (value === 'none') {
+      setSorting([]);
+      return;
+    }
+    setSorting([{ id: 'createdAt', desc: value === 'newest' }]);
+  };
 
   // Query params
   const queryParams: QueryUsersParams = {
@@ -66,6 +90,8 @@ export const UsersPage = () => {
     search: search || undefined,
     sortBy: sorting[0]?.id as any,
     sortOrder: sorting[0]?.desc ? 'desc' : 'asc',
+    isActive: statusFilter === 'all' ? undefined : statusFilter === 'active',
+    verificationStatus: verificationFilter === 'all' ? undefined : verificationFilter
   };
 
   // Fetch users
@@ -109,25 +135,12 @@ export const UsersPage = () => {
       accessorKey: 'displayName',
       header: '顯示名稱',
     },
-    // 暂时注释掉手机号列，以后可能会用到
-    // {
-    //   accessorKey: 'phoneNumber',
-    //   header: '手机号',
-    // },
     {
-      accessorKey: 'roles',
-      header: '角色',
-      cell: ({ row }) => {
-        const roles = row.getValue('roles') as string[];
-        return (
-          <div className="flex gap-1">
-            {roles.map((role) => (
-              <Badge key={role} variant="secondary">
-                {role}
-              </Badge>
-            ))}
-          </div>
-        );
+      accessorKey: 'phoneNumber',
+      header: '手機號碼',
+      cell: ({ row }) => <div>{row.getValue('phoneNumber') || '-'}</div>,
+      meta: {
+        minWidth: '120px',
       },
     },
     {
@@ -181,8 +194,19 @@ export const UsersPage = () => {
       },
     },
     {
+      accessorKey: 'createdAt',
+      header: '註冊時間',
+      cell: ({ row }) => {
+        const value = row.getValue('createdAt') as string | null;
+        return value ? formatTaiwanDateTime(value) : '-';
+      },
+      meta: {
+        minWidth: '160px'
+      }
+    },
+    {
       id: 'view',
-      header: '詳情',
+      header: '訂單詳情',
       cell: ({ row }) => {
         const user = row.original;
         return (
@@ -191,12 +215,12 @@ export const UsersPage = () => {
             size="sm"
             onClick={() => navigate({ to: `/users/${user.id}` })}
           >
-            查看詳情
+            交易詳情
           </Button>
         );
       },
       meta: {
-        minWidth: '110px',
+        minWidth: '120px',
       },
     },
     {
@@ -204,7 +228,7 @@ export const UsersPage = () => {
       header: '最後登入',
       cell: ({ row }) => {
         const date = row.getValue('lastLoginAt') as string | null;
-        return date ? new Date(date).toLocaleString('zh-CN') : '從未登入';
+        return date ? formatTaiwanDateTime(date) : '從未登入';
       },
     },
     {
@@ -303,7 +327,7 @@ export const UsersPage = () => {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>用戶管理</CardTitle>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type="text"
                 placeholder="搜索用戶..."
@@ -314,6 +338,53 @@ export const UsersPage = () => {
                 }}
                 className="px-3 py-2 border rounded-md"
               />
+              <Select
+                value={registrationSortValue}
+                onValueChange={(val) => handleRegistrationSortChange(val as 'none' | 'newest' | 'oldest')}
+              >
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="註冊時間排序" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">註冊時間（不排序）</SelectItem>
+                  <SelectItem value="newest">註冊時間：新 ➜ 舊</SelectItem>
+                  <SelectItem value="oldest">註冊時間：舊 ➜ 新</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => {
+                  setStatusFilter(value as typeof statusFilter);
+                  setPagination({ ...pagination, page: 1 });
+                }}
+              >
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="狀態" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部狀態</SelectItem>
+                  <SelectItem value="active">活躍</SelectItem>
+                  <SelectItem value="inactive">停用</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={verificationFilter}
+                onValueChange={(value) => {
+                  setVerificationFilter(value as typeof verificationFilter);
+                  setPagination({ ...pagination, page: 1 });
+                }}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="身份驗證" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部身份驗證</SelectItem>
+                  <SelectItem value="PENDING">待審核</SelectItem>
+                  <SelectItem value="IN_REVIEW">審核中</SelectItem>
+                  <SelectItem value="VERIFIED">驗證成功</SelectItem>
+                  <SelectItem value="REJECTED">驗證失敗</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>

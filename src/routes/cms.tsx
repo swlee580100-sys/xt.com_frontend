@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
 import { cmsService } from '@/services/cms';
+import { settingsService } from '@/services/settings';
 import type {
   Testimonial,
   TestimonialPayload,
@@ -28,11 +29,13 @@ import type {
   LeaderboardType,
   TradingPerformanceEntry,
   TradingPerformancePayload,
-  ShareCopyPayload,
-  ShareCopySetting,
-  DepositAddressPayload,
-  DepositAddressSetting
 } from '@/types/cms';
+import type {
+  ShareConfig,
+  UpdateShareConfigDto,
+  DepositAddressConfig,
+  UpdateDepositAddressConfigDto
+} from '@/types/settings';
 
 const tabs = [
   {
@@ -51,11 +54,6 @@ const tabs = [
     description: '維護排行榜展示的數據來源與排版'
   },
   {
-    value: 'trading-performance',
-    label: '交易時長/盈利率管理',
-    description: '維護不同交易時長對應的盈利率配置'
-  },
-  {
     value: 'share-copy',
     label: '分享平台文案設置',
     description: '管理分享按鈕對應的預設與自定義文案'
@@ -67,10 +65,19 @@ const tabs = [
   }
 ] as const;
 
-const DEFAULT_SHARE_COPY =
-  '我發現了超好用的二元期權交易平台CT，快來使用，註冊就送10000USDT虛擬錢包，輕鬆練習交易\n\nhttp://localhost:5180';
+const DEFAULT_SHARE_CONFIG: ShareConfig = {
+  title: '加入我們一起交易',
+  description: '體驗最專業的數字貨幣交易平台',
+  image: '',
+  url: 'http://localhost:5180',
+  hashtags: ['crypto', 'trading'],
+  content: '🎉 邀請好友一起交易\n\n立即註冊可獲得 10000 USDT 體驗金\n開啟你的交易之旅！'
+};
 
-const DEFAULT_DEPOSIT_ADDRESS = 'TPMsabGrWUtwhyaKrTeXTrHq4nHSSEuaww';
+const DEFAULT_DEPOSIT_ADDRESS_CONFIG: DepositAddressConfig = {
+  address: 'TPMsabGrWUtwhyaKrTeXTrHq4nHSSEuaww',
+  qrCodeUrl: ''
+};
 
 const placeholder = (
   <div className="flex h-48 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
@@ -90,20 +97,12 @@ const leaderboardTypeLabel: Record<LeaderboardType, string> = {
   MONTHLY: '月榜'
 };
 
-// 格式化日期時間為兩行顯示
+import { formatTaiwanDate, formatTaiwanTime } from '@/lib/date-utils';
+
+// 格式化日期時間為兩行顯示（使用台灣時間）
 const formatDateTime = (dateString: string): string => {
-  const date = new Date(dateString);
-  const dateStr = date.toLocaleDateString('zh-TW', {
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric'
-  });
-  const timeStr = date.toLocaleTimeString('zh-TW', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true
-  });
+  const dateStr = formatTaiwanDate(dateString);
+  const timeStr = formatTaiwanTime(dateString);
   return `${dateStr}\n${timeStr}`;
 };
 
@@ -151,16 +150,6 @@ const initialLeaderboardFormState: LeaderboardFormState = {
   volume: '0'
 };
 
-type TradingPerformanceFormState = {
-  tradeDuration: string;
-  winRate: string;
-};
-
-const initialTradingPerformanceFormState: TradingPerformanceFormState = {
-  tradeDuration: '1',
-  winRate: '0'
-};
-
 export const CmsPage = () => {
   const { api } = useAuth();
   const queryClient = useQueryClient();
@@ -186,20 +175,11 @@ export const CmsPage = () => {
   }));
   const [leaderboardFormErrors, setLeaderboardFormErrors] = useState<Record<string, string>>({});
 
-  const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
-  const [editingPerformance, setEditingPerformance] = useState<TradingPerformanceEntry | null>(null);
-  const [performanceFormData, setPerformanceFormData] = useState<TradingPerformanceFormState>(() => ({
-    ...initialTradingPerformanceFormState
-  }));
-  const [performanceFormErrors, setPerformanceFormErrors] = useState<Record<string, string>>({});
-
   const [leaderboardFilter, setLeaderboardFilter] = useState<LeaderboardType | 'all'>('all');
-  const [shareCopyContent, setShareCopyContent] = useState<string>(DEFAULT_SHARE_COPY);
-  const [shareCopyError, setShareCopyError] = useState<string | null>(null);
-  const [shareCopyFetchError, setShareCopyFetchError] = useState<string | null>(null);
-  const [shareCopySuccess, setShareCopySuccess] = useState<string | null>(null);
-  const [depositAddress, setDepositAddress] = useState<string>(DEFAULT_DEPOSIT_ADDRESS);
-  const [depositAddressQrcode, setDepositAddressQrcode] = useState<string | null>(null);
+  const [shareConfig, setShareConfig] = useState<ShareConfig>(DEFAULT_SHARE_CONFIG);
+  const [shareConfigError, setShareConfigError] = useState<string | null>(null);
+  const [shareConfigSuccess, setShareConfigSuccess] = useState<string | null>(null);
+  const [depositAddressConfig, setDepositAddressConfig] = useState<DepositAddressConfig>(DEFAULT_DEPOSIT_ADDRESS_CONFIG);
   const [depositAddressError, setDepositAddressError] = useState<string | null>(null);
   const [depositAddressSuccess, setDepositAddressSuccess] = useState<string | null>(null);
 
@@ -228,67 +208,89 @@ export const CmsPage = () => {
   });
 
   const {
-    data: tradingPerformance = [],
-    isLoading: tradingPerformanceLoading
+    data: shareConfigData,
+    isLoading: shareConfigLoading,
+    error: shareConfigQueryError
   } = useQuery({
-    queryKey: ['cms', 'trading-performance'],
-    queryFn: () => cmsService.listTradingPerformance(api)
+    queryKey: ['settings', 'share-config'],
+    queryFn: () => settingsService.getShareConfig(api)
   });
 
   const {
-    data: shareCopySetting,
-    isLoading: shareCopyLoading,
-    error: shareCopyQueryError
-  } = useQuery({
-    queryKey: ['cms', 'share-copy'],
-    queryFn: () => cmsService.getShareCopy(api)
-  });
-
-  const {
-    data: depositAddressSetting,
+    data: depositAddressData,
     isLoading: depositAddressLoading,
     error: depositAddressQueryError
   } = useQuery({
-    queryKey: ['cms', 'deposit-address'],
-    queryFn: () => cmsService.getDepositAddress(api)
+    queryKey: ['settings', 'deposit-address'],
+    queryFn: () => settingsService.getDepositAddressConfig(api)
   });
 
   useEffect(() => {
-    if (shareCopySetting && typeof shareCopySetting.content === 'string') {
-      setShareCopyContent(shareCopySetting.content || DEFAULT_SHARE_COPY);
-      setShareCopyFetchError(null);
-    } else if (!shareCopyLoading && !shareCopySetting) {
-      setShareCopyContent(DEFAULT_SHARE_COPY);
+    console.log('分享配置数据更新:', { shareConfigData, shareConfigLoading });
+    if (shareConfigData) {
+      // 确保所有字段都有默认值
+      const config = {
+        title: shareConfigData.title || '',
+        description: shareConfigData.description || '',
+        image: shareConfigData.image || '',
+        url: shareConfigData.url || '',
+        hashtags: shareConfigData.hashtags || [],
+        content: shareConfigData.content || ''
+      };
+      console.log('设置分享配置为:', config);
+      setShareConfig(config);
+      setShareConfigError(null);
+    } else if (!shareConfigLoading && !shareConfigData) {
+      console.log('使用默认分享配置');
+      setShareConfig(DEFAULT_SHARE_CONFIG);
     }
-  }, [shareCopySetting, shareCopyLoading]);
+  }, [shareConfigData, shareConfigLoading]);
 
   useEffect(() => {
-    if (shareCopyQueryError) {
+    if (shareConfigQueryError) {
       const message =
-        shareCopyQueryError instanceof Error
-          ? shareCopyQueryError.message
-          : '分享文案載入失敗，請稍後再試';
-      setShareCopyFetchError(message);
+        shareConfigQueryError instanceof Error
+          ? shareConfigQueryError.message
+          : '分享配置載入失敗，請稍後再試';
+      setShareConfigError(message);
     } else {
-      setShareCopyFetchError(null);
+      setShareConfigError(null);
     }
-  }, [shareCopyQueryError]);
+  }, [shareConfigQueryError]);
 
   useEffect(() => {
-    if (!shareCopySuccess) return;
-    const timer = window.setTimeout(() => setShareCopySuccess(null), 3000);
+    if (!shareConfigSuccess) return;
+    const timer = window.setTimeout(() => setShareConfigSuccess(null), 3000);
     return () => window.clearTimeout(timer);
-  }, [shareCopySuccess]);
+  }, [shareConfigSuccess]);
 
   useEffect(() => {
-    if (depositAddressSetting && typeof depositAddressSetting.address === 'string') {
-      setDepositAddress(depositAddressSetting.address || DEFAULT_DEPOSIT_ADDRESS);
-      setDepositAddressQrcode(depositAddressSetting.qrcode || null);
-    } else if (!depositAddressLoading && !depositAddressSetting) {
-      setDepositAddress(DEFAULT_DEPOSIT_ADDRESS);
-      setDepositAddressQrcode(null);
+    console.log('入金地址数据更新:', { depositAddressData, depositAddressLoading });
+    if (depositAddressData) {
+      const config = {
+        address: depositAddressData.address || '',
+        qrCodeUrl: depositAddressData.qrCodeUrl || ''
+      };
+      console.log('设置入金地址配置为:', config);
+      setDepositAddressConfig(config);
+      setDepositAddressError(null);
+    } else if (!depositAddressLoading && !depositAddressData) {
+      console.log('使用默认入金地址配置');
+      setDepositAddressConfig(DEFAULT_DEPOSIT_ADDRESS_CONFIG);
     }
-  }, [depositAddressSetting, depositAddressLoading]);
+  }, [depositAddressData, depositAddressLoading]);
+
+  useEffect(() => {
+    if (depositAddressQueryError) {
+      const message =
+        depositAddressQueryError instanceof Error
+          ? depositAddressQueryError.message
+          : '入金地址載入失敗，請稍後再試';
+      setDepositAddressError(message);
+    } else {
+      setDepositAddressError(null);
+    }
+  }, [depositAddressQueryError]);
 
   useEffect(() => {
     if (!depositAddressSuccess) return;
@@ -400,66 +402,39 @@ export const CmsPage = () => {
   const isLeaderboardSubmitting =
     createLeaderboardMutation.isPending || updateLeaderboardMutation.isPending;
 
-  const createPerformanceMutation = useMutation({
-    mutationFn: (payload: TradingPerformancePayload) =>
-      cmsService.createTradingPerformance(api, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cms', 'trading-performance'] });
-      setPerformanceDialogOpen(false);
-    },
-    onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || '新增失敗，請稍后再试';
-      setPerformanceFormErrors({ general: message });
-    }
-  });
-
-  const updatePerformanceMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: TradingPerformancePayload }) =>
-      cmsService.updateTradingPerformance(api, id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cms', 'trading-performance'] });
-      setPerformanceDialogOpen(false);
-    },
-    onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || '更新失敗，請稍后再试';
-      setPerformanceFormErrors({ general: message });
-    }
-  });
-
-  const deletePerformanceMutation = useMutation({
-    mutationFn: (id: string) => cmsService.deleteTradingPerformance(api, id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cms', 'trading-performance'] });
-    }
-  });
-
-  const isPerformanceSubmitting =
-    createPerformanceMutation.isPending || updatePerformanceMutation.isPending;
-
-  const updateShareCopyMutation = useMutation({
-    mutationFn: (payload: ShareCopyPayload) => cmsService.updateShareCopy(api, payload),
+  const updateShareConfigMutation = useMutation({
+    mutationFn: (payload: UpdateShareConfigDto) => settingsService.updateShareConfig(api, payload),
     onSuccess: data => {
-      queryClient.invalidateQueries({ queryKey: ['cms', 'share-copy'] });
-      setShareCopyError(null);
-      setShareCopyFetchError(null);
-      setShareCopySuccess('分享文案已更新');
-      setShareCopyContent(data.content || DEFAULT_SHARE_COPY);
+      queryClient.invalidateQueries({ queryKey: ['settings', 'share-config'] });
+      setShareConfigError(null);
+      setShareConfigSuccess('分享配置已更新');
+      // 确保所有字段都有默认值
+      setShareConfig({
+        title: data.title || '',
+        description: data.description || '',
+        image: data.image || '',
+        url: data.url || '',
+        hashtags: data.hashtags || [],
+        content: data.content || ''
+      });
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || error?.message || '更新失敗，請稍後再試';
-      setShareCopySuccess(null);
-      setShareCopyError(message);
+      setShareConfigSuccess(null);
+      setShareConfigError(message);
     }
   });
 
   const updateDepositAddressMutation = useMutation({
-    mutationFn: (payload: DepositAddressPayload) => cmsService.updateDepositAddress(api, payload),
+    mutationFn: (payload: UpdateDepositAddressConfigDto) => settingsService.updateDepositAddressConfig(api, payload),
     onSuccess: data => {
-      queryClient.invalidateQueries({ queryKey: ['cms', 'deposit-address'] });
+      queryClient.invalidateQueries({ queryKey: ['settings', 'deposit-address'] });
       setDepositAddressError(null);
       setDepositAddressSuccess('入金地址已更新');
-      setDepositAddress(data.address || DEFAULT_DEPOSIT_ADDRESS);
-      setDepositAddressQrcode(data.qrcode || null);
+      setDepositAddressConfig({
+        address: data.address || '',
+        qrCodeUrl: data.qrCodeUrl || ''
+      });
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || error?.message || '更新失敗，請稍後再試';
@@ -708,7 +683,29 @@ export const CmsPage = () => {
       name: leaderboardFormData.name.trim(),
       tradeCount: Number(leaderboardFormData.tradeCount),
       winRate: Number(leaderboardFormData.winRate),
-      volume: Number(leaderboardFormData.volume)
+      volume: Number(leaderboardFormData.volume),
+      ...(() => {
+        const tradeCountValue = Math.max(0, Number(leaderboardFormData.tradeCount));
+        const volumeValue = Math.max(0, Number(leaderboardFormData.volume));
+        const safeTradeCount = tradeCountValue > 0 ? tradeCountValue : 1;
+        const averageTrade = safeTradeCount > 0 ? volumeValue / safeTradeCount : volumeValue;
+        const calculatedHighest = Math.min(
+          volumeValue || averageTrade,
+          Number((averageTrade * 1.5 || volumeValue).toFixed(2))
+        );
+        const highestTrade = Number(
+          (volumeValue === 0 ? 0 : Math.max(averageTrade, calculatedHighest)).toFixed(2)
+        );
+        const calculatedLowest = volumeValue === 0 ? 0 : averageTrade * 0.5;
+        const lowestTrade = Number(
+          Math.max(0, Math.min(highestTrade, calculatedLowest)).toFixed(2)
+        );
+        return {
+          totalVolume: Number(volumeValue.toFixed(2)),
+          highestTrade,
+          lowestTrade
+        };
+      })()
     };
 
     if (editingLeaderboard) {
@@ -723,77 +720,6 @@ export const CmsPage = () => {
     const confirmed = window.confirm(`確認刪除 ${leaderboardTypeLabel[entry.type]} 的 ${entry.name} 嗎？`);
     if (confirmed) {
       deleteLeaderboardMutation.mutate(entry.id);
-    }
-  };
-
-  const handlePerformanceDialogOpenChange = (open: boolean) => {
-    setPerformanceDialogOpen(open);
-    if (!open) {
-      setEditingPerformance(null);
-      setPerformanceFormErrors({});
-      setPerformanceFormData(() => ({ ...initialTradingPerformanceFormState }));
-    }
-  };
-
-  const handleCreatePerformance = () => {
-    setEditingPerformance(null);
-    setPerformanceFormErrors({});
-    setPerformanceFormData(() => ({ ...initialTradingPerformanceFormState }));
-    setPerformanceDialogOpen(true);
-  };
-
-  const handleEditPerformance = (entry: TradingPerformanceEntry) => {
-    setEditingPerformance(entry);
-    setPerformanceFormErrors({});
-    setPerformanceFormData({
-      tradeDuration: String(entry.tradeDuration),
-      winRate: entry.winRate.toString()
-    });
-    setPerformanceDialogOpen(true);
-  };
-
-  const validatePerformanceForm = () => {
-    const errors: Record<string, string> = {};
-
-    const duration = Number(performanceFormData.tradeDuration);
-    if (!Number.isInteger(duration) || duration < 1 || duration > 300) {
-      errors.tradeDuration = '交易時長必須是 1~300 的整數（單位：秒）';
-    }
-
-    const winRate = Number(performanceFormData.winRate);
-    if (Number.isNaN(winRate) || winRate < 0 || winRate > 100) {
-      errors.winRate = '盈利率需在 0-100 之間';
-    }
-
-    return errors;
-  };
-
-  const handlePerformanceSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const errors = validatePerformanceForm();
-
-    if (Object.keys(errors).length > 0) {
-      setPerformanceFormErrors(errors);
-      return;
-    }
-
-    const payload: TradingPerformancePayload = {
-      tradeDuration: Number(performanceFormData.tradeDuration),
-      winRate: Number(performanceFormData.winRate)
-    };
-
-    if (editingPerformance) {
-      updatePerformanceMutation.mutate({ id: editingPerformance.id, payload });
-    } else {
-      createPerformanceMutation.mutate(payload);
-    }
-  };
-
-  const handlePerformanceDelete = (entry: TradingPerformanceEntry) => {
-    if (deletePerformanceMutation.isPending) return;
-    const confirmed = window.confirm(`確認刪除交易時長 ${entry.tradeDuration} 秒的配置嗎？`);
-    if (confirmed) {
-      deletePerformanceMutation.mutate(entry.id);
     }
   };
 
@@ -1064,138 +990,109 @@ export const CmsPage = () => {
     );
   };
 
-  const renderPerformanceTable = () => {
-    if (tradingPerformanceLoading) {
-      return (
-        <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-          正在載入交易時長与盈利率配置...
-        </div>
-      );
-    }
-
-    if (tradingPerformance.length === 0) {
-      return (
-        <div className="flex h-32 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-          暫無交易時長配置，點擊右上角按鈕新增一條吧。
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-4">
-        <div className="rounded-md border overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-                <TableHead className="w-40">交易時長 (秒)</TableHead>
-                <TableHead className="w-32">盈利率 (%)</TableHead>
-              <TableHead className="w-40">更新時間</TableHead>
-              <TableHead className="w-32 text-right">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tradingPerformance.map(entry => (
-              <TableRow key={entry.id}>
-                <TableCell className="font-medium">{entry.tradeDuration}</TableCell>
-                <TableCell>{entry.winRate.toFixed(2)}%</TableCell>
-                  <TableCell className="text-sm text-muted-foreground whitespace-pre-line">
-                    {formatDateTime(entry.updatedAt)}
-                </TableCell>
-                <TableCell className="flex items-center justify-end gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => handleEditPerformance(entry)}>
-                    <Edit2 className="mr-1 h-4 w-4" />
-                    編輯
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => handlePerformanceDelete(entry)}
-                    disabled={deletePerformanceMutation.isPending}
-                  >
-                    <Trash2 className="mr-1 h-4 w-4" />
-                    刪除
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        </div>
-      </div>
-    );
+  const handleShareConfigReset = () => {
+    setShareConfig(DEFAULT_SHARE_CONFIG);
+    setShareConfigError(null);
+    setShareConfigSuccess(null);
   };
 
-  const handleShareCopyReset = () => {
-    const fallback = shareCopySetting?.defaultContent ?? DEFAULT_SHARE_COPY;
-    setShareCopyContent(fallback);
-    setShareCopyError(null);
-    setShareCopySuccess(null);
-  };
-
-  const handleShareCopySubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleShareConfigSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const trimmed = shareCopyContent.trim();
-    if (!trimmed) {
-      setShareCopyError('分享文案不可為空');
-      setShareCopySuccess(null);
+
+    // 验证必填字段
+    if (!shareConfig.url.trim()) {
+      setShareConfigError('連結不可為空');
+      setShareConfigSuccess(null);
+      return;
+    }
+    if (!shareConfig.content.trim()) {
+      setShareConfigError('分享文案不可為空');
+      setShareConfigSuccess(null);
       return;
     }
 
-    updateShareCopyMutation.mutate({ content: trimmed });
+    updateShareConfigMutation.mutate({
+      config: {
+        title: shareConfig.title || DEFAULT_SHARE_CONFIG.title,
+        description: shareConfig.description || DEFAULT_SHARE_CONFIG.description,
+        image: shareConfig.image || '',
+        url: shareConfig.url.trim(),
+        hashtags: shareConfig.hashtags || DEFAULT_SHARE_CONFIG.hashtags,
+        content: shareConfig.content.trim()
+      }
+    });
   };
 
   const renderShareCopyForm = () => {
-    if (shareCopyLoading) {
+    if (shareConfigLoading) {
       return (
         <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-          正在載入分享文案...
+          正在載入分享配置...
         </div>
       );
     }
 
     return (
-      <form className="space-y-4" onSubmit={handleShareCopySubmit}>
-        {shareCopySuccess ? (
+      <form className="space-y-4" onSubmit={handleShareConfigSubmit}>
+        {shareConfigSuccess ? (
           <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
-            {shareCopySuccess}
+            {shareConfigSuccess}
+          </div>
+        ) : null}
+
+        {shareConfigError ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {shareConfigError}
           </div>
         ) : null}
 
         <div className="space-y-2">
-          <Label htmlFor="share-copy-content">分享文案</Label>
-          <textarea
-            id="share-copy-content"
-            value={shareCopyContent}
+          <Label htmlFor="share-url">分享連結</Label>
+          <Input
+            id="share-url"
+            value={shareConfig.url}
             onChange={event => {
-              setShareCopyContent(event.target.value);
-              setShareCopyError(null);
-              setShareCopySuccess(null);
+              setShareConfig(prev => ({ ...prev, url: event.target.value }));
+              setShareConfigError(null);
+              setShareConfigSuccess(null);
+            }}
+            placeholder="https://example.com"
+            disabled={updateShareConfigMutation.isPending}
+          />
+          <p className="text-xs text-muted-foreground">分享的目標連結</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="share-content">分享文案</Label>
+          <textarea
+            id="share-content"
+            value={shareConfig.content}
+            onChange={event => {
+              setShareConfig(prev => ({ ...prev, content: event.target.value }));
+              setShareConfigError(null);
+              setShareConfigSuccess(null);
             }}
             rows={6}
             className="min-h-[160px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            placeholder={DEFAULT_SHARE_COPY}
-            disabled={updateShareCopyMutation.isPending}
+            placeholder="🎉 邀請好友一起交易..."
+            disabled={updateShareConfigMutation.isPending}
           />
           <p className="text-xs text-muted-foreground">
-            平台上的分享按鈕會套用此段文字，可使用換行與連結。若未設定將採用預設文案。
+            平台上的分享按鈕會套用此段文字，可使用換行與連結。
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={updateShareCopyMutation.isPending}>
-            {updateShareCopyMutation.isPending ? '儲存中…' : '保存分享文案'}
+          <Button type="submit" disabled={updateShareConfigMutation.isPending}>
+            {updateShareConfigMutation.isPending ? '儲存中…' : '保存分享配置'}
           </Button>
           <Button
             type="button"
             variant="outline"
-            onClick={handleShareCopyReset}
-            disabled={
-              updateShareCopyMutation.isPending ||
-              shareCopyContent === (shareCopySetting?.defaultContent ?? DEFAULT_SHARE_COPY)
-            }
+            onClick={handleShareConfigReset}
+            disabled={updateShareConfigMutation.isPending}
           >
-            恢復預設文案
+            恢復預設配置
           </Button>
         </div>
       </form>
@@ -1203,24 +1100,24 @@ export const CmsPage = () => {
   };
 
   const handleDepositAddressReset = () => {
-    const fallback = depositAddressSetting?.defaultAddress ?? DEFAULT_DEPOSIT_ADDRESS;
-    setDepositAddress(fallback);
-    setDepositAddressQrcode(null);
+    setDepositAddressConfig(DEFAULT_DEPOSIT_ADDRESS_CONFIG);
     setDepositAddressError(null);
     setDepositAddressSuccess(null);
   };
 
   const handleDepositAddressSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const trimmed = depositAddress.trim();
+    const trimmed = depositAddressConfig.address.trim();
     if (!trimmed) {
       setDepositAddressError('入金地址不可為空');
       setDepositAddressSuccess(null);
       return;
     }
-    updateDepositAddressMutation.mutate({ 
-      address: trimmed,
-      qrcode: depositAddressQrcode || undefined
+    updateDepositAddressMutation.mutate({
+      config: {
+        address: trimmed,
+        qrCodeUrl: depositAddressConfig.qrCodeUrl
+      }
     });
   };
 
@@ -1244,7 +1141,7 @@ export const CmsPage = () => {
     reader.onload = (e) => {
       const result = e.target?.result;
       if (typeof result === 'string') {
-        setDepositAddressQrcode(result);
+        setDepositAddressConfig(prev => ({ ...prev, qrCodeUrl: result }));
         setDepositAddressError(null);
         setDepositAddressSuccess(null);
       }
@@ -1256,7 +1153,7 @@ export const CmsPage = () => {
   };
 
   const handleRemoveQrcode = () => {
-    setDepositAddressQrcode(null);
+    setDepositAddressConfig(prev => ({ ...prev, qrCodeUrl: '' }));
     setDepositAddressError(null);
     setDepositAddressSuccess(null);
   };
@@ -1278,13 +1175,19 @@ export const CmsPage = () => {
           </div>
         ) : null}
 
+        {depositAddressError ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {depositAddressError}
+          </div>
+        ) : null}
+
         <div className="space-y-2">
           <Label htmlFor="deposit-address">入金地址</Label>
           <Input
             id="deposit-address"
-            value={depositAddress}
+            value={depositAddressConfig.address}
             onChange={event => {
-              setDepositAddress(event.target.value);
+              setDepositAddressConfig(prev => ({ ...prev, address: event.target.value }));
               setDepositAddressError(null);
               setDepositAddressSuccess(null);
             }}
@@ -1292,23 +1195,19 @@ export const CmsPage = () => {
             spellCheck={false}
             disabled={updateDepositAddressMutation.isPending}
           />
-          {depositAddressError ? (
-            <p className="text-sm text-destructive">{depositAddressError}</p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              用戶在入金頁面會看到此地址，請確認與錢包資訊一致。
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            用戶在入金頁面會看到此地址，請確認與錢包資訊一致。
+          </p>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="qrcode-upload">QR Code 圖片</Label>
           <div className="space-y-3">
-            {depositAddressQrcode ? (
+            {depositAddressConfig.qrCodeUrl ? (
               <div className="space-y-2">
                 <div className="relative inline-block">
                   <img
-                    src={depositAddressQrcode}
+                    src={depositAddressConfig.qrCodeUrl}
                     alt="QR Code"
                     className="h-32 w-32 border rounded-md object-contain"
                   />
@@ -1328,7 +1227,7 @@ export const CmsPage = () => {
                 </p>
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="space-y-2">
                 <Input
                   id="qrcode-upload"
                   type="file"
@@ -1353,10 +1252,7 @@ export const CmsPage = () => {
             type="button"
             variant="outline"
             onClick={handleDepositAddressReset}
-            disabled={
-              updateDepositAddressMutation.isPending ||
-              depositAddress === (depositAddressSetting?.defaultAddress ?? DEFAULT_DEPOSIT_ADDRESS)
-            }
+            disabled={updateDepositAddressMutation.isPending}
           >
             恢復預設地址
           </Button>
@@ -1385,7 +1281,6 @@ export const CmsPage = () => {
           const isTestimonials = tab.value === 'testimonials';
           const isCarousel = tab.value === 'carousel';
           const isLeaderboard = tab.value === 'leaderboard';
-          const isTradingPerformanceTab = tab.value === 'trading-performance';
           const isShareCopy = tab.value === 'share-copy';
           const isDepositAddress = tab.value === 'deposit-address';
 
@@ -1412,11 +1307,6 @@ export const CmsPage = () => {
                       新增排行榜记录
                     </Button>
                   ) : null}
-                  {isTradingPerformanceTab ? (
-                    <Button size="sm" onClick={handleCreatePerformance}>
-                      新增交易時長配置
-                    </Button>
-                  ) : null}
                 </CardHeader>
                 <CardContent>
                   {isTestimonials
@@ -1425,13 +1315,11 @@ export const CmsPage = () => {
                       ? renderCarouselsTable()
                       : isLeaderboard
                         ? renderLeaderboardTable()
-                        : isTradingPerformanceTab
-                          ? renderPerformanceTable()
-                          : isShareCopy
-                            ? renderShareCopyForm()
-                            : isDepositAddress
-                              ? renderDepositAddressForm()
-                          : placeholder}
+                        : isShareCopy
+                          ? renderShareCopyForm()
+                          : isDepositAddress
+                            ? renderDepositAddressForm()
+                            : placeholder}
                 </CardContent>
               </Card>
 
@@ -1796,89 +1684,6 @@ export const CmsPage = () => {
                         </Button>
                         <Button type="submit" disabled={isLeaderboardSubmitting}>
                           {isLeaderboardSubmitting ? '提交中…' : editingLeaderboard ? '保存修改' : '創建'}
-                        </Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              ) : null}
-
-              {isTradingPerformanceTab ? (
-                <Dialog open={performanceDialogOpen} onOpenChange={handlePerformanceDialogOpenChange}>
-                  <DialogContent className="sm:max-w-[420px]">
-                    <form onSubmit={handlePerformanceSubmit} className="space-y-4">
-                      <DialogHeader>
-                        <DialogTitle>
-                          {editingPerformance ? '編輯交易時長配置' : '新增交易時長配置'}
-                        </DialogTitle>
-                      </DialogHeader>
-
-                      {performanceFormErrors.general && (
-                        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                          {performanceFormErrors.general}
-                        </div>
-                      )}
-
-                      <div className="space-y-2">
-                        <Label htmlFor="performance-duration">交易時長 (秒)</Label>
-                        <Input
-                          id="performance-duration"
-                          type="number"
-                          min={1}
-                          max={300}
-                          value={performanceFormData.tradeDuration}
-                          onChange={event =>
-                            setPerformanceFormData(prev => ({
-                              ...prev,
-                              tradeDuration: event.target.value
-                            }))
-                          }
-                          disabled={isPerformanceSubmitting}
-                        />
-                        {performanceFormErrors.tradeDuration ? (
-                          <p className="text-sm text-destructive">
-                            {performanceFormErrors.tradeDuration}
-                          </p>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">可設置 1~300 的整數，單位為秒</p>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="performance-winRate">盈利率 (%)</Label>
-                        <Input
-                          id="performance-winRate"
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={0.01}
-                          value={performanceFormData.winRate}
-                          onChange={event =>
-                            setPerformanceFormData(prev => ({
-                              ...prev,
-                              winRate: event.target.value
-                            }))
-                          }
-                          disabled={isPerformanceSubmitting}
-                        />
-                        {performanceFormErrors.winRate ? (
-                          <p className="text-sm text-destructive">{performanceFormErrors.winRate}</p>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">範圍 0-100，可保留兩位小數</p>
-                        )}
-                      </div>
-
-                      <DialogFooter className="gap-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          disabled={isPerformanceSubmitting}
-                          onClick={() => handlePerformanceDialogOpenChange(false)}
-                        >
-                          取消
-                        </Button>
-                        <Button type="submit" disabled={isPerformanceSubmitting}>
-                          {isPerformanceSubmitting ? '提交中…' : editingPerformance ? '保存修改' : '創建'}
                         </Button>
                       </DialogFooter>
                     </form>

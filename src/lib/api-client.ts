@@ -43,6 +43,15 @@ export const createApiClient = ({ getTokens, onRefresh, onLogout, onForbidden }:
         return Promise.reject(error);
       }
 
+      // Handle connection timeout errors
+      if (
+        (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) &&
+        onForbidden
+      ) {
+        onForbidden();
+        return Promise.reject(error);
+      }
+
       if (error.response?.status !== 401 || originalRequest._retry) {
         return Promise.reject(error);
       }
