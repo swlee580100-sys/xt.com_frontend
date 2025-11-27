@@ -6,6 +6,7 @@ import type {
   UpdateUserDto,
   UpdateUserRolesDto,
   AdjustBalanceDto,
+  ResetPasswordDto,
 } from '@/types/user';
 
 export const userService = {
@@ -85,5 +86,17 @@ export const userService = {
    */
   delete: async (api: AxiosInstance, id: string): Promise<void> => {
     await api.delete(`/admin/users/${id}`);
+  },
+
+  /**
+   * 管理員重置用戶密碼
+   */
+  resetPassword: async (
+    api: AxiosInstance,
+    id: string,
+    data: ResetPasswordDto,
+  ): Promise<User> => {
+    const response = await api.patch(`/admin/users/${id}/reset-password`, data);
+    return response.data.data;
   },
 };

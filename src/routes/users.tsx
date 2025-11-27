@@ -9,9 +9,10 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { MoreHorizontal, ChevronUp, ChevronDown, Pencil, UserX, UserCheck, Trash2 } from 'lucide-react';
+import { MoreHorizontal, ChevronUp, ChevronDown, Pencil, UserX, UserCheck, Trash2, Key } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/useToast';
 import { userService } from '@/services/users';
 import type { User, QueryUsersParams } from '@/types/user';
 import { cn } from '@/lib/utils';
@@ -51,11 +52,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { EditUserDialog } from '@/components/users/edit-user-dialog';
 
 export const UsersPage = () => {
   const navigate = useNavigate();
   const { api } = useAuth();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // State
@@ -68,6 +72,9 @@ export const UsersPage = () => {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState('');
   const registrationSortValue =
     sorting[0]?.id === 'createdAt'
       ? sorting[0]?.desc
@@ -121,6 +128,27 @@ export const UsersPage = () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteDialogOpen(false);
       setUserToDelete(null);
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ id, newPassword }: { id: string; newPassword: string }) =>
+      userService.resetPassword(api, id, { newPassword }),
+    onSuccess: () => {
+      toast({
+        title: '成功',
+        description: '密碼已重置',
+      });
+      setResetPasswordDialogOpen(false);
+      setUserToResetPassword(null);
+      setNewPassword('');
+    },
+    onError: (error: any) => {
+      toast({
+        title: '錯誤',
+        description: error?.response?.data?.message || error?.message || '重置密碼失敗',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -276,6 +304,15 @@ export const UsersPage = () => {
                   激活用戶
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem
+                onClick={() => {
+                  setUserToResetPassword(user);
+                  setResetPasswordDialogOpen(true);
+                }}
+              >
+                <Key className="mr-2 h-4 w-4" />
+                重置密碼
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-red-600"
@@ -515,6 +552,62 @@ export const UsersPage = () => {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? '刪除中...' : '確認刪除'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>重置密碼</DialogTitle>
+            <DialogDescription>
+              為用戶 "{userToResetPassword?.displayName}" ({userToResetPassword?.email}) 設置新密碼
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">新密碼</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="請輸入新密碼"
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setResetPasswordDialogOpen(false);
+                setUserToResetPassword(null);
+                setNewPassword('');
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                if (!userToResetPassword || !newPassword.trim()) {
+                  toast({
+                    title: '錯誤',
+                    description: '請輸入新密碼',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+                resetPasswordMutation.mutate({
+                  id: userToResetPassword.id,
+                  newPassword: newPassword.trim(),
+                });
+              }}
+              disabled={resetPasswordMutation.isPending || !newPassword.trim()}
+            >
+              {resetPasswordMutation.isPending ? '重置中...' : '確認重置'}
             </Button>
           </DialogFooter>
         </DialogContent>
