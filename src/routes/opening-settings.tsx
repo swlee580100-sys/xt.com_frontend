@@ -390,6 +390,71 @@ export function OpeningSettingsPage() {
     fetchActiveTrades();
   }, [fetchActiveTrades]);
 
+  // 轮询定时器：定期刷新交易数据
+  useEffect(() => {
+    // 只在"进行中"标签下启用轮询
+    if (statusFilter !== 'ACTIVE' || !api) return;
+
+    // 初始获取一次
+    fetchActiveTrades({ silent: true });
+
+    // 设置轮询间隔（3秒）
+    const pollInterval = setInterval(async () => {
+      // 静默刷新交易列表
+      fetchActiveTrades({ silent: true });
+
+      // 刷新每个大盘的交易数据
+      if (sessions.length > 0) {
+        const sessionTransactionsMap: Record<string, { pending: Transaction[]; settled: Transaction[] }> = {};
+
+        // 并行获取所有大盘的交易数据
+        await Promise.all(
+          sessions.map(async (session) => {
+            const transactions = await fetchSessionTransactions(session.id);
+            sessionTransactionsMap[session.id] = transactions;
+          })
+        );
+
+        // 更新订单统计
+        const newStats: Record<string, { pendingCount: number; settledCount: number }> = {};
+        for (const [sessionId, transactions] of Object.entries(sessionTransactionsMap)) {
+          newStats[sessionId] = {
+            pendingCount: transactions.pending.length,
+            settledCount: transactions.settled.length
+          };
+        }
+        setOrderStats(prev => ({ ...prev, ...newStats }));
+
+        // 更新交易列表
+        const allPending: Transaction[] = [];
+        const allSettled: Transaction[] = [];
+        for (const transactions of Object.values(sessionTransactionsMap)) {
+          allPending.push(...transactions.pending);
+          allSettled.push(...transactions.settled);
+        }
+
+        // 合并到现有列表中，避免覆盖
+        setActiveRealTrades(prev => {
+          const map = new Map(prev.map(t => [t.id, t]));
+          for (const t of allPending) {
+            map.set(t.id, t);
+          }
+          return Array.from(map.values());
+        });
+
+        setRecentFinished(prev => {
+          const map = new Map(prev.map(t => [t.id, t]));
+          for (const t of allSettled) {
+            map.set(t.id, t);
+          }
+          return Array.from(map.values());
+        });
+      }
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [statusFilter, api, sessions, fetchActiveTrades, fetchSessionTransactions]);
+
   // 依賴 WebSocket 並以本地計時器處理倒數結束（不自動結算，由後端自動結算）
   useEffect(() => {
     if (!api) return;
