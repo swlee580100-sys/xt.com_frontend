@@ -23,9 +23,9 @@ import marketSessionService from '@/services/market-sessions';
 import { transactionService } from '@/services/transactions';
 import TradeUpdatesSocket from '@/services/trade-updates';
 import type { AxiosInstance } from 'axios';
+import { MarketSessionStatus } from '@/types/market-session';
 import type {
   MarketSession,
-  MarketSessionStatus,
   GetMarketSessionsParams
 } from '@/types/market-session';
 import type { Transaction } from '@/types/transaction';
@@ -123,7 +123,7 @@ export function OpeningSettingsPage() {
   // 僅在首次進入頁面時同步一次全局輸贏控制
   const hasSyncedGlobalOnceRef = useRef(false);
 
-  const allowedStatuses = new Set<MarketSessionStatus>(['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELED']);
+  const allowedStatuses = new Set<MarketSessionStatus>([MarketSessionStatus.PENDING, MarketSessionStatus.ACTIVE, MarketSessionStatus.COMPLETED, MarketSessionStatus.CANCELED]);
   const filterActiveTrades = useCallback(
     (trades: Transaction[]) =>
       trades.filter(trade => trade.accountType === 'REAL' && trade.status === 'PENDING'),
@@ -1275,6 +1275,7 @@ export function OpeningSettingsPage() {
           setDesiredOutcomes={setDesiredOutcomes}
           api={api}
           switchDebounceRef={switchDebounceRef}
+          tradingSocketRef={tradingSocketRef}
         />
       )}
 
@@ -1453,14 +1454,19 @@ interface ActiveRealTradesSectionProps {
   setDesiredOutcomes: React.Dispatch<React.SetStateAction<Record<string, 'WIN' | 'LOSE'>>>;
   api: AxiosInstance | null;
   switchDebounceRef: React.MutableRefObject<Record<string, ReturnType<typeof setTimeout>>>;
+  tradingSocketRef: React.MutableRefObject<TradeUpdatesSocket | null>;
 }
 
 const ActiveRealTradesSection = memo(
-  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, api, switchDebounceRef }: ActiveRealTradesSectionProps) => {
+  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, api, switchDebounceRef, tradingSocketRef }: ActiveRealTradesSectionProps) => {
     const { toast } = useToast();
     const [now, setNow] = useState<number>(() => Date.now());
     const [durationFilter, setDurationFilter] =
       useState<'ALL' | 30 | 60 | 90 | 120 | 150 | 180 | 'FINISHED'>('ALL');
+    // 記錄已經處理過的交易，避免重複結算
+    const settledTradesRef = useRef<Set<string>>(new Set());
+    // 記錄正在處理的交易，避免並發結算
+    const settlingTradesRef = useRef<Set<string>>(new Set());
 
     useEffect(() => {
       const t = setInterval(() => setNow(Date.now()), 1000);
@@ -1478,6 +1484,106 @@ const ActiveRealTradesSection = memo(
       const diff = new Date(expiryTime).getTime() - new Date(entryTime).getTime();
       return Math.max(0, Math.round(diff / 1000));
     };
+
+    // 監控交易到期並自動結算
+    useEffect(() => {
+      if (!api) return;
+
+      trades.forEach(async (trade) => {
+        // 跳過已經處理過的交易
+        if (settledTradesRef.current.has(trade.id)) return;
+        // 跳過正在處理的交易
+        if (settlingTradesRef.current.has(trade.id)) return;
+        // 跳過已經結算或取消的交易
+        if (trade.status === 'SETTLED' || trade.status === 'CANCELED') return;
+
+        const remaining = getRemainingSeconds(trade.expiryTime);
+
+        // 當交易到期時（倒數 <= 0）
+        if (remaining <= 0) {
+          const desiredOutcome = desiredOutcomes[trade.id];
+
+          // 如果沒有設置期望結果，默認為 LOSE
+          const outcome = desiredOutcome || 'LOSE';
+
+          console.log('⏰ Trade expired, auto settling:', {
+            tradeId: trade.id,
+            orderNumber: trade.orderNumber,
+            remaining,
+            outcome,
+            hasDesiredOutcome: !!desiredOutcome
+          });
+
+          // 標記為正在處理
+          settlingTradesRef.current.add(trade.id);
+
+          try {
+            // 計算出場價格
+            // 如果設置為 WIN，需要根據方向計算有利的價格
+            // 如果設置為 LOSE，需要根據方向計算不利的價格
+            const entryPrice = Number(trade.entryPrice);
+            let exitPrice: number;
+
+            if (outcome === 'WIN') {
+              // 贏：CALL 需要價格上漲，PUT 需要價格下跌
+              if (trade.direction === 'CALL') {
+                exitPrice = entryPrice * 1.001; // 上漲 0.1%
+              } else {
+                exitPrice = entryPrice * 0.999; // 下跌 0.1%
+              }
+            } else {
+              // 輸：CALL 需要價格下跌，PUT 需要價格上漲
+              if (trade.direction === 'CALL') {
+                exitPrice = entryPrice * 0.999; // 下跌 0.1%
+              } else {
+                exitPrice = entryPrice * 1.001; // 上漲 0.1%
+              }
+            }
+
+            console.log('💰 Calculated exit price:', {
+              entryPrice,
+              exitPrice,
+              direction: trade.direction,
+              outcome
+            });
+
+            // 調用結算接口
+            const result = await transactionService.forceSettle(api, trade.orderNumber, {
+              exitPrice,
+              result: outcome
+            });
+
+            console.log('✅ Auto settle success:', result);
+
+            // 標記為已處理
+            settledTradesRef.current.add(trade.id);
+
+            // 移除期望結果設置
+            setDesiredOutcomes(prev => {
+              const next = { ...prev };
+              delete next[trade.id];
+              return next;
+            });
+
+            // 刷新列表
+            setTimeout(() => {
+              onRefresh();
+            }, 500);
+
+          } catch (error) {
+            console.error('❌ Auto settle failed:', error);
+            toast({
+              title: '自動結算失敗',
+              description: `訂單 ${trade.orderNumber} 結算失敗`,
+              variant: 'destructive'
+            });
+          } finally {
+            // 移除正在處理標記
+            settlingTradesRef.current.delete(trade.id);
+          }
+        }
+      });
+    }, [trades, now, desiredOutcomes, api, onRefresh, toast, setDesiredOutcomes, getRemainingSeconds]);
 
     const allowedDurations = [30, 60, 90, 120, 150, 180] as const;
 
@@ -1636,117 +1742,26 @@ const ActiveRealTradesSection = memo(
                             <Switch
                               disabled={quickUpdatingIds.has(trade.id)}
                               checked={(desiredOutcomes[trade.id] || 'LOSE') === 'WIN'}
-                              onCheckedChange={async (checked) => {
+                              onCheckedChange={(checked) => {
                                 const outcome = checked ? 'WIN' : 'LOSE';
 
                                 console.log('🔵 Switch changed:', {
                                   tradeId: trade.id,
                                   orderNumber: trade.orderNumber,
                                   outcome,
-                                  checked,
-                                  hasApi: !!api,
-                                  hasSocket: !!tradingSocketRef.current
+                                  checked
                                 });
 
-                                // 更新前端狀態
+                                // 只更新前端狀態，不調用後端 API
+                                // 期望結果會保存到 localStorage，供管理員查看
+                                // 實際結算由後端在時間到期時自動執行
                                 setDesiredOutcomes(prev => ({ ...prev, [trade.id]: outcome }));
 
-                                // 清除之前的防抖定時器
-                                if (switchDebounceRef.current[trade.id]) {
-                                  clearTimeout(switchDebounceRef.current[trade.id]);
-                                }
-
-                                // 無論切換到「贏」或「輸」都要調用 API 設置期望結果（不結算）
-                                // 因為如果之前設置過「贏」，切換回「輸」時也需要通知後端
-                                // 注意：這裡只設置期望結果，不傳 exitPrice，不會立即結算
-                                // 實際結算會由後端在倒數結束後根據設置的期望結果自動執行
-                                switchDebounceRef.current[trade.id] = setTimeout(async () => {
-                                  console.log('🟢 Debounce triggered, calling API:', {
-                                    tradeId: trade.id,
-                                    orderNumber: trade.orderNumber,
-                                    outcome
-                                  });
-
-                                  // 確保在 try-catch 外也能看到日誌
-                                  console.log('🔍 About to check socket and api...');
-
-                                  try {
-                                    console.log('🔍 Getting socket from ref...');
-                                    const socket = tradingSocketRef.current;
-                                    console.log('🔍 Checking socket and api:', {
-                                      hasSocket: !!socket,
-                                      socketType: socket ? typeof socket : 'null',
-                                      socketConnected: socket && 'socket' in socket ? (socket as any).socket?.connected : 'unknown',
-                                      hasApi: !!api,
-                                      apiType: api ? typeof api : 'null',
-                                      tradeId: trade.id,
-                                      orderNumber: trade.orderNumber
-                                    });
-
-                                    // 優先使用 HTTP API，因為更可靠
-                                    // WebSocket 雖然連接成功，但後端可能沒有正確響應
-                                    if (api) {
-                                      // HTTP API: 只傳 result，不傳 exitPrice，只設置期望結果
-                                      console.log('🌐 Using HTTP API to set outcome:', {
-                                        url: `/admin/transactions/${trade.orderNumber}/force-settle`,
-                                        result: outcome,
-                                        orderNumber: trade.orderNumber
-                                      });
-                                      try {
-                                        const result = await transactionService.forceSettle(api, trade.orderNumber, {
-                                          result: outcome
-                                          // 不傳 exitPrice，這樣不會立即結算，只設置期望結果
-                                        });
-                                        console.log('✅ HTTP API forceSettle success:', result);
-                                      } catch (httpError) {
-                                        console.error('❌ HTTP API forceSettle error:', httpError);
-                                        // 如果 HTTP API 失敗，嘗試使用 WebSocket 作為備選
-                                        const socket = tradingSocketRef.current;
-                                        if (socket) {
-                                          console.log('🔄 Falling back to WebSocket');
-                                          try {
-                                            const wsResult = await socket.forceSettle(trade.id, undefined, outcome);
-                                            console.log('✅ WebSocket forceSettle success (fallback):', wsResult);
-                                          } catch (wsError) {
-                                            console.error('❌ WebSocket forceSettle error (fallback):', wsError);
-                                            throw httpError; // 拋出原始 HTTP 錯誤
-                                          }
-                                        } else {
-                                          throw httpError;
-                                        }
-                                      }
-                                    } else if (socket) {
-                                      // 如果沒有 HTTP API，才使用 WebSocket
-                                      console.log('📡 Using WebSocket to set outcome (no HTTP API available)');
-                                      try {
-                                        const result = await socket.forceSettle(trade.id, undefined, outcome);
-                                        console.log('✅ WebSocket forceSettle success:', result);
-                                      } catch (wsError) {
-                                        console.error('❌ WebSocket forceSettle error:', wsError);
-                                        throw wsError;
-                                      }
-                                    } else {
-                                      console.error('❌ Neither socket nor API is available');
-                                      console.error('Socket:', socket, 'API:', api);
-                                      toast({
-                                        title: '錯誤',
-                                        description: '無法連接到服務，請檢查網絡連接',
-                                        variant: 'destructive'
-                                      });
-                                    }
-                                  } catch (error) {
-                                    console.error('❌ Failed to set outcome:', error);
-                                    // 失敗時恢復狀態為原來的狀態（切換前的狀態）
-                                    setDesiredOutcomes(prev => ({ ...prev, [trade.id]: checked ? 'LOSE' : 'WIN' }));
-                                    toast({
-                                      title: '錯誤',
-                                      description: '設置失敗，請重試',
-                                      variant: 'destructive'
-                                    });
-                                  } finally {
-                                    delete switchDebounceRef.current[trade.id];
-                                  }
-                                }, 300);
+                                toast({
+                                  title: '已設置期望結果',
+                                  description: `訂單 ${trade.orderNumber} 設置為${outcome === 'WIN' ? '贏' : '輸'}`,
+                                  variant: 'default'
+                                });
                               }}
                               aria-label="切換輸贏"
                             />
