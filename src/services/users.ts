@@ -6,6 +6,7 @@ import type {
   UpdateUserDto,
   UpdateUserRolesDto,
   AdjustBalanceDto,
+  ResetPasswordDto,
 } from '@/types/user';
 
 export const userService = {
@@ -85,5 +86,36 @@ export const userService = {
    */
   delete: async (api: AxiosInstance, id: string): Promise<void> => {
     await api.delete(`/admin/users/${id}`);
+  },
+
+  /**
+   * 管理員重置用戶密碼
+   */
+  resetPassword: async (
+    api: AxiosInstance,
+    id: string,
+    data: ResetPasswordDto,
+  ): Promise<User> => {
+    const response = await api.patch(`/admin/users/${id}/reset-password`, data);
+    return response.data.data;
+  },
+
+  /**
+   * 管理員為其他用戶上傳頭像
+   */
+  uploadAvatar: async (
+    api: AxiosInstance,
+    id: string,
+    file: File,
+  ): Promise<User> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post(`/auth/upload-avatar/${id}`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data.data;
   },
 };

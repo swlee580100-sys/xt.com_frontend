@@ -58,3 +58,7 @@ export interface AdjustBalanceDto {
   amount: number;
   reason?: string;
 }
+
+export interface ResetPasswordDto {
+  newPassword: string;
+}

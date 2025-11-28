@@ -572,18 +572,13 @@ export function OpeningSettingsPage() {
           // 只有全局是「全贏」時才調用 API
           if (mode === 'ALL_WIN') {
             try {
-              const socket = tradingSocketRef.current;
-              if (socket) {
-                // 使用 WebSocket 方式
-                await socket.forceSettle(trade.id, undefined);
-              } else if (api) {
-                // 使用 HTTP API 方式
+              if (api) {
                 await transactionService.forceSettle(api, trade.orderNumber, {
                   result: 'WIN'
                 });
+                // API 成功後更新前端狀態為「贏」
+                setDesiredOutcomes(prev => ({ ...prev, [trade.id]: 'WIN' }));
               }
-              // API 成功後更新前端狀態為「贏」
-              setDesiredOutcomes(prev => ({ ...prev, [trade.id]: 'WIN' }));
             } catch (error) {
               console.error('Failed to set outcome for new trade:', error);
               // 失敗時保持「輸」的狀態，不顯示錯誤提示（避免打擾用戶）
@@ -604,12 +599,7 @@ export function OpeningSettingsPage() {
             // 如果是隨機到「贏」，才調用 API 設置期望結果（不結算）
             if (randomOutcome === 'WIN') {
               try {
-                const socket = tradingSocketRef.current;
-                if (socket) {
-                  // WebSocket: 不傳 settlementPrice，只設置期望結果
-                  await socket.forceSettle(trade.id, undefined);
-                } else if (api) {
-                  // HTTP API: 只傳 result，不傳 exitPrice，只設置期望結果
+                if (api) {
                   await transactionService.forceSettle(api, trade.orderNumber, {
                     result: 'WIN'
                     // 不傳 exitPrice，這樣不會立即結算，只設置期望結果
@@ -733,6 +723,10 @@ export function OpeningSettingsPage() {
       } else {
         throw new Error('目前無法連線交易服務');
       }
+      await transactionService.forceSettle(api, tradeToEdit.orderNumber, {
+        exitPrice: parsedExit,
+        result: resultForm.outcome as 'WIN' | 'LOSE'
+      });
       toast({
         title: '成功',
         description: '交易結果已更新'
@@ -788,13 +782,9 @@ export function OpeningSettingsPage() {
         await Promise.allSettled(
           batch.map(async trade => {
             try {
-              if (socket) {
-                await socket.forceSettle(trade.id, undefined);
-              } else {
-                await transactionService.forceSettle(api, trade.orderNumber, {
-                  result: 'WIN'
-                });
-              }
+              await transactionService.forceSettle(api, trade.orderNumber, {
+                result: 'WIN'
+              });
             } catch (error) {
               console.error(`Failed to set outcome for trade ${trade.id}:`, error);
               // 失敗時恢復前端狀態為「輸」
@@ -814,18 +804,20 @@ export function OpeningSettingsPage() {
 
     // 無論設置「贏」或「輸」都要調用 API 設置期望結果（不結算）
     // 注意：不傳 exitPrice，只傳 result，這樣不會立即結算
+    if (!api) {
+      toast({
+        title: '錯誤',
+        description: '無法連接到服務',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
     try {
-      const socket = tradingSocketRef.current;
-      if (socket) {
-        // WebSocket: 不傳 settlementPrice，只設置期望結果
-        await socket.forceSettle(trade.id, undefined);
-      } else if (api) {
-        // HTTP API: 只傳 result，不傳 exitPrice，只設置期望結果
-        await transactionService.forceSettle(api, trade.orderNumber, {
-          result: outcome
-          // 不傳 exitPrice，這樣不會立即結算，只設置期望結果
-        });
-      }
+      await transactionService.forceSettle(api, trade.orderNumber, {
+        result: outcome
+        // 不傳 exitPrice，這樣不會立即結算，只設置期望結果
+      });
       toast({
         title: '已設定',
         description: `此訂單將在到期時由後端自動結算為${outcome === 'WIN' ? '贏' : '輸'}`
@@ -1282,7 +1274,6 @@ export function OpeningSettingsPage() {
           desiredOutcomes={desiredOutcomes}
           setDesiredOutcomes={setDesiredOutcomes}
           api={api}
-          tradingSocketRef={tradingSocketRef}
           switchDebounceRef={switchDebounceRef}
         />
       )}
@@ -1461,12 +1452,11 @@ interface ActiveRealTradesSectionProps {
   desiredOutcomes: Record<string, 'WIN' | 'LOSE'>;
   setDesiredOutcomes: React.Dispatch<React.SetStateAction<Record<string, 'WIN' | 'LOSE'>>>;
   api: AxiosInstance | null;
-  tradingSocketRef: React.MutableRefObject<TradeUpdatesSocket | null>;
   switchDebounceRef: React.MutableRefObject<Record<string, ReturnType<typeof setTimeout>>>;
 }
 
 const ActiveRealTradesSection = memo(
-  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, api, tradingSocketRef, switchDebounceRef }: ActiveRealTradesSectionProps) => {
+  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, api, switchDebounceRef }: ActiveRealTradesSectionProps) => {
     const { toast } = useToast();
     const [now, setNow] = useState<number>(() => Date.now());
     const [durationFilter, setDurationFilter] =
