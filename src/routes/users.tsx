@@ -17,6 +17,7 @@ import { userService } from '@/services/users';
 import type { User, QueryUsersParams } from '@/types/user';
 import { cn } from '@/lib/utils';
 import { formatTaiwanDateTime } from '@/lib/date-utils';
+import { appConfig } from '@/config/env';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -152,6 +153,34 @@ export const UsersPage = () => {
     },
   });
 
+  // 構建圖片 URL 的輔助函數
+  const buildImageUrl = (raw?: string | null): string | undefined => {
+    if (!raw) return undefined;
+    const val = String(raw);
+    // 絕對網址
+    if (/^https?:\/\//i.test(val)) {
+      if (window.location.protocol === 'https:' && val.startsWith('http://')) {
+        return val.replace(/^http:\/\//i, 'https://');
+      }
+      return val;
+    }
+    // 相對路徑：以 API 的 origin 作為基底
+    try {
+      const api = appConfig.apiUrl || '';
+      let originBase: string;
+      if (/^https?:\/\//i.test(api)) {
+        const u = new URL(api);
+        originBase = `${u.protocol}//${u.host}`;
+      } else {
+        originBase = window.location.origin;
+      }
+      const normalized = val.startsWith('/') ? val : `/${val}`;
+      return `${originBase}${normalized}`;
+    } catch {
+      return val;
+    }
+  };
+
   // Table columns
   const columns: ColumnDef<User>[] = [
     {
@@ -162,6 +191,34 @@ export const UsersPage = () => {
     {
       accessorKey: 'displayName',
       header: '顯示名稱',
+      cell: ({ row }) => {
+        const user = row.original;
+        const avatarUrl = buildImageUrl(user.avatar);
+        return (
+          <div className="flex items-center gap-3">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={user.displayName}
+                className="h-10 w-10 rounded-full object-cover"
+                onError={(e) => {
+                  const el = e.currentTarget as HTMLImageElement;
+                  if (el.src.startsWith('http://') && window.location.protocol === 'https:') {
+                    el.src = el.src.replace('http://', 'https://');
+                  } else {
+                    el.style.display = 'none';
+                  }
+                }}
+              />
+            ) : (
+              <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm font-medium">
+                {user.displayName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || '?'}
+              </div>
+            )}
+            <span>{user.displayName}</span>
+          </div>
+        );
+      },
     },
     {
       accessorKey: 'phoneNumber',
