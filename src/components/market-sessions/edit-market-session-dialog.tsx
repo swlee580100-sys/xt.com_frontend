@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
 import { marketSessionService } from '@/services/market-sessions';
@@ -31,37 +31,28 @@ interface EditMarketSessionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  activeCount?: number; // 當前正在進行的盤數量
+  onSessionStarted?: () => void; // 大盤啟用成功後的回調
 }
 
 export function EditMarketSessionDialog({
   session,
   open,
   onOpenChange,
-  onSuccess
+  onSuccess,
+  activeCount = 0,
+  onSessionStarted
 }: EditMarketSessionDialogProps) {
   const { api } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  type UiInitialControl = 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' | 'INDIVIDUAL';
-  const mapResultToUi = (r?: MarketResult | null): UiInitialControl => {
-    if (r === 'WIN') return 'ALL_WIN';
-    if (r === 'LOSE') return 'ALL_LOSE';
-    return 'INDIVIDUAL';
-  };
-  const mapUiToResult = (u: UiInitialControl): MarketResult => {
-    if (u === 'ALL_WIN') return 'WIN';
-    if (u === 'ALL_LOSE') return 'LOSE';
-    return 'PENDING'; // RANDOM / INDIVIDUAL 都記為 PENDING
-  };
-
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    initialResult: 'PENDING' as MarketResult,
-    actualResult: undefined as MarketResult | undefined
+    initialResult: 'PENDING' as MarketResult
   });
-  const [uiInitialControl, setUiInitialControl] = useState<UiInitialControl>('INDIVIDUAL');
+  const [enableImmediately, setEnableImmediately] = useState(false);
 
   // 初始化表單數據
   useEffect(() => {
@@ -70,20 +61,19 @@ export function EditMarketSessionDialog({
       setFormData({
         name: session.name,
         description: session.description || '',
-        initialResult: session.initialResult,
-        actualResult: session.actualResult || undefined
+        initialResult: session.initialResult
       });
-      setUiInitialControl(mapResultToUi(session.initialResult));
+      setEnableImmediately(false); // 編輯時不顯示立即啟用選項
     } else {
       // 建立模式 - 設定預設值
       setFormData({
         name: '',
         description: '',
-        initialResult: 'PENDING',
-        actualResult: undefined
+        initialResult: 'PENDING'
       });
-      setUiInitialControl('INDIVIDUAL');
+      setEnableImmediately(false); // 預設關閉
     }
+    // 當對話框打開時，activeCount 會從父組件傳入，這裡不需要額外處理
   }, [session, open]);
 
   // 格式化日期時間為 datetime-local 輸入格式
@@ -112,6 +102,16 @@ export function EditMarketSessionDialog({
       return;
     }
 
+    // 如果建立時選擇立即啟用，且當前有 ACTIVE 的盤，則不允許建立
+    if (!session && enableImmediately && activeCount > 0) {
+      toast({
+        title: '錯誤',
+        description: '當前有正在進行的盤，無法立即啟用新盤',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -120,8 +120,7 @@ export function EditMarketSessionDialog({
         const updateData: UpdateMarketSessionRequest = {
           name: formData.name,
           description: formData.description || undefined,
-          initialResult: mapUiToResult(uiInitialControl),
-          // 編輯時不再提供「實際結果」欄位，後端不需更新此欄
+          initialResult: formData.initialResult
         };
 
         await marketSessionService.admin.updateSession(api, session.id, updateData);
@@ -139,14 +138,60 @@ export function EditMarketSessionDialog({
           description: formData.description || undefined,
           startTime: start.toISOString(),
           endTime: end.toISOString(),
-          initialResult: mapUiToResult(uiInitialControl)
+          initialResult: formData.initialResult
         };
 
-        await marketSessionService.admin.createSession(api, createData);
-        toast({
-          title: '成功',
-          description: '大盤已建立'
-        });
+        const createdSession = await marketSessionService.admin.createSession(api, createData);
+        
+        // 驗證創建的大盤 ID
+        if (!createdSession || !createdSession.id) {
+          console.error('❌ 創建大盤失敗：未返回有效的大盤 ID', createdSession);
+          toast({
+            title: '錯誤',
+            description: '創建大盤失敗：未返回有效的大盤 ID',
+            variant: 'destructive'
+          });
+          return;
+        }
+        
+        // 如果選擇立即啟用，則調用 startSession
+        if (enableImmediately) {
+          try {
+            console.log('🟢 開始啟用大盤:', createdSession.id, 'initialResult:', formData.initialResult);
+            // 傳遞 initialResult 參數，與手動啟用時保持一致
+            const startResult = await marketSessionService.admin.startSession(api, createdSession.id, {
+              initialResult: formData.initialResult
+            });
+            console.log('✅ 大盤啟用成功:', startResult);
+            toast({
+              title: '成功',
+              description: `大盤已建立並立即啟用，建立了 ${startResult.subMarketsCreated || 0} 個小盤`
+            });
+            // 調用回調函數，通知父組件刷新狀態
+            if (onSessionStarted) {
+              onSessionStarted();
+            }
+          } catch (startError: any) {
+            console.error('❌ 啟用大盤失敗:', startError);
+            console.error('錯誤詳情:', {
+              message: startError.message,
+              response: startError.response?.data,
+              status: startError.response?.status,
+              url: startError.config?.url,
+              method: startError.config?.method
+            });
+            toast({
+              title: '部分成功',
+              description: '大盤已建立，但啟用失敗：' + (startError.response?.data?.message || startError.message || '未知錯誤'),
+              variant: 'destructive'
+            });
+          }
+        } else {
+          toast({
+            title: '成功',
+            description: '大盤已建立'
+          });
+        }
       }
 
       onSuccess();
@@ -194,30 +239,32 @@ export function EditMarketSessionDialog({
               />
             </div>
 
-            {/* 時間範圍：已移除（由後台啟停控制） */}
-
-            {/* 資產類型：已移除（建立大盤不需要資產類型） */}
-
-            {/* 初始結果（與全局輸贏控制一致的選項） */}
-            <div>
-              <Label htmlFor="initialResult">預設輸贏結果（與全局輸贏控制一致）</Label>
-              <Select
-                value={uiInitialControl}
-                onValueChange={(val) => setUiInitialControl(val as UiInitialControl)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="選擇預設輸贏結果" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL_WIN">全贏</SelectItem>
-                  <SelectItem value="ALL_LOSE">全輸</SelectItem>
-                  <SelectItem value="RANDOM">隨機</SelectItem>
-                  <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 實際結果：已移除（編輯大盤不需要此篩選器） */}
+            {/* 是否立即啟用（僅建立模式顯示） */}
+            {!session && (
+              <div className="space-y-2">
+                {activeCount > 0 && (
+                  <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                    <p className="text-sm text-red-800 font-medium">
+                      警告：當前有 {activeCount} 個正在進行的盤，無法立即啟用新盤
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="enableImmediately">是否立即啟用</Label>
+                    <p className="text-sm text-muted-foreground">
+                      建立後立即啟用此大盤
+                    </p>
+                  </div>
+                  <Switch
+                    id="enableImmediately"
+                    checked={enableImmediately}
+                    onCheckedChange={setEnableImmediately}
+                    disabled={activeCount > 0}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="mt-6">

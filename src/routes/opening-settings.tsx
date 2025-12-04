@@ -772,6 +772,7 @@ export function OpeningSettingsPage() {
         description: result.message
       });
       fetchSessions();
+      fetchActiveCount(); // 更新進行中的盤數量
     } catch (error: any) {
       console.error('Failed to stop session:', error);
       toast({
@@ -817,6 +818,8 @@ export function OpeningSettingsPage() {
   const handleCreateSession = () => {
     setSelectedSession(null);
     setIsEditDialogOpen(true);
+    // 打開對話框前重新獲取最新的進行中盤數量
+    fetchActiveCount();
   };
 
   // 獲取狀態標籤
@@ -854,11 +857,12 @@ export function OpeningSettingsPage() {
           <p className="text-muted-foreground mt-2">管理進行中的訂單並控制玩家輸贏</p>
         </div>
         <div className="flex gap-2 items-center">
-          {statusFilter === 'ACTIVE' && activeCount > 0 && (
+          {statusFilter === 'ACTIVE' && (
             <div className="hidden sm:flex items-center gap-2">
               <span className="text-sm text-muted-foreground">全局輸贏控制</span>
               <Select
                 value={globalOutcomeControl}
+                disabled={activeCount === 0 || activeRealTrades.length === 0}
                 onValueChange={(val: any) => {
                   if (val === 'INDIVIDUAL') {
                     setGlobalOutcomeControl('INDIVIDUAL');
@@ -897,6 +901,17 @@ export function OpeningSettingsPage() {
             建立大盤
         </Button>
         </div>
+      </div>
+
+      {/* 交易規則提示框 */}
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
+        <p className="font-medium mb-1">交易規則說明：</p>
+        <p className="mb-2">
+          虛擬交易將按照玩家實際結果判斷輸贏，真實交易不論看漲看跌是否正確。預設玩家一定輸，當開啟輸贏控制按鈕，玩家才會盈利
+        </p>
+        <p className="font-medium text-amber-900">
+          注意：如果沒有開啟大盤，無法控制輸贏，玩家必輸
+        </p>
       </div>
 
       {/* 待開盤頁籤下方、標題區域下的固定提醒橫幅 */}
@@ -963,7 +978,6 @@ export function OpeningSettingsPage() {
                           <>
                             <TableHead>名稱</TableHead>
                             <TableHead>描述</TableHead>
-                            <TableHead className="w-[120px]">預設輸贏</TableHead>
                             <TableHead className="text-right">操作</TableHead>
                           </>
                         ) : statusFilter === 'ACTIVE' ? (
@@ -994,13 +1008,6 @@ export function OpeningSettingsPage() {
                           <TableCell className="font-medium">{session.name}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {session.description || '-'}
-                            </TableCell>
-                          <TableCell className="w-[120px]">
-                            {session.initialResult === 'WIN'
-                              ? '全贏'
-                              : session.initialResult === 'LOSE'
-                              ? '全輸'
-                              : '個別控制'}
                             </TableCell>
                           <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
@@ -1151,6 +1158,7 @@ export function OpeningSettingsPage() {
           setDesiredOutcomes={setDesiredOutcomes}
           api={api}
           switchDebounceRef={switchDebounceRef}
+          activeCount={activeCount}
         />
       )}
 
@@ -1162,6 +1170,15 @@ export function OpeningSettingsPage() {
         onSuccess={() => {
           setIsEditDialogOpen(false);
           fetchSessions();
+          fetchActiveCount();
+        }}
+        activeCount={activeCount}
+        onSessionStarted={() => {
+          // 大盤啟用成功後，切換到「進行中」分頁並刷新
+          setStatusFilter('ACTIVE');
+          setCurrentPage(1);
+          fetchSessions();
+          fetchActiveCount();
         }}
       />
 
@@ -1329,10 +1346,11 @@ interface ActiveRealTradesSectionProps {
   setDesiredOutcomes: React.Dispatch<React.SetStateAction<Record<string, 'WIN' | 'LOSE'>>>;
   api: AxiosInstance | null;
   switchDebounceRef: React.MutableRefObject<Record<string, ReturnType<typeof setTimeout>>>;
+  activeCount?: number; // 當前正在進行的盤數量
 }
 
 const ActiveRealTradesSection = memo(
-  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, api, switchDebounceRef }: ActiveRealTradesSectionProps) => {
+  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, api, switchDebounceRef, activeCount = 0 }: ActiveRealTradesSectionProps) => {
     const { toast } = useToast();
     const [now, setNow] = useState<number>(() => Date.now());
     const [durationFilter, setDurationFilter] =
@@ -1503,7 +1521,12 @@ const ActiveRealTradesSection = memo(
                         <div className="flex items-center justify-end gap-2">
                           <span className="text-xs text-muted-foreground">輸</span>
                           <Switch
-                            disabled={quickUpdatingIds.has(trade.id)}
+                            disabled={
+                              quickUpdatingIds.has(trade.id) || 
+                              activeCount === 0 || 
+                              trades.length === 0 ||
+                              !trade.marketSessionId // 如果訂單沒有大盤ID，禁用輸贏控制
+                            }
                             checked={(desiredOutcomes[trade.id] || 'LOSE') === 'WIN'}
                             onCheckedChange={async (checked) => {
                               const outcome = checked ? 'WIN' : 'LOSE';
