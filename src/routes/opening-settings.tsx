@@ -896,6 +896,7 @@ export function OpeningSettingsPage() {
         description: result.message
       });
       fetchSessions();
+      fetchActiveCount(); // 更新進行中的盤數量
     } catch (error: any) {
       console.error('Failed to stop session:', error);
       toast({
@@ -941,6 +942,8 @@ export function OpeningSettingsPage() {
   const handleCreateSession = () => {
     setSelectedSession(null);
     setIsEditDialogOpen(true);
+    // 打開對話框前重新獲取最新的進行中盤數量
+    fetchActiveCount();
   };
 
   // 獲取狀態標籤
@@ -978,11 +981,12 @@ export function OpeningSettingsPage() {
           <p className="text-muted-foreground mt-2">管理進行中的訂單並控制玩家輸贏</p>
         </div>
         <div className="flex gap-2 items-center">
-          {statusFilter === 'ACTIVE' && activeCount > 0 && (
+          {statusFilter === 'ACTIVE' && (
             <div className="hidden sm:flex items-center gap-2">
               <span className="text-sm text-muted-foreground">全局輸贏控制</span>
               <Select
                 value={globalOutcomeControl}
+                disabled={activeCount === 0 || activeRealTrades.length === 0}
                 onValueChange={(val: any) => {
                   if (val === 'INDIVIDUAL') {
                     setGlobalOutcomeControl('INDIVIDUAL');
@@ -1021,6 +1025,17 @@ export function OpeningSettingsPage() {
             建立大盤
           </Button>
         </div>
+      </div>
+
+      {/* 交易規則提示框 */}
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
+        <p className="font-medium mb-1">交易規則說明：</p>
+        <p className="mb-2">
+          虛擬交易將按照玩家實際結果判斷輸贏，真實交易不論看漲看跌是否正確。預設玩家一定輸，當開啟輸贏控制按鈕，玩家才會盈利
+        </p>
+        <p className="font-medium text-amber-900">
+          注意：如果沒有開啟大盤，無法控制輸贏，玩家必輸
+        </p>
       </div>
 
       {/* 待開盤頁籤下方、標題區域下的固定提醒橫幅 */}
@@ -1080,37 +1095,36 @@ export function OpeningSettingsPage() {
             <div className="text-center py-8 text-muted-foreground">暫無資料</div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {statusFilter === 'PENDING' ? (
-                      <>
-                        <TableHead>名稱</TableHead>
-                        <TableHead>描述</TableHead>
-                        <TableHead className="w-[120px]">預設輸贏</TableHead>
-                        <TableHead className="text-right">操作</TableHead>
-                      </>
-                    ) : statusFilter === 'ACTIVE' ? (
-                      <>
-                        <TableHead>名稱</TableHead>
-                        <TableHead>開盤時間</TableHead>
-                        <TableHead className="w-[120px]">進行中訂單</TableHead>
-                        <TableHead className="w-[120px]">已結束訂單</TableHead>
-                        <TableHead className="text-right">操作</TableHead>
-                      </>
-                    ) : (
-                      <>
-                        <TableHead>名稱</TableHead>
-                        <TableHead>開盤時間</TableHead>
-                        <TableHead>結束時間</TableHead>
-                        {/* 已閉盤不需要進行中訂單欄位，只顯示已結束訂單 */}
-                        <TableHead className="w-[120px]">已結束訂單</TableHead>
-                        <TableHead className="text-right">操作</TableHead>
-                      </>
-                    )}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {statusFilter === 'PENDING' ? (
+                          <>
+                            <TableHead>名稱</TableHead>
+                            <TableHead>描述</TableHead>
+                            <TableHead className="text-right">操作</TableHead>
+                          </>
+                        ) : statusFilter === 'ACTIVE' ? (
+                          <>
+                            <TableHead>名稱</TableHead>
+                            <TableHead>開盤時間</TableHead>
+                            <TableHead className="w-[120px]">進行中訂單</TableHead>
+                            <TableHead className="w-[120px]">已結束訂單</TableHead>
+                            <TableHead className="text-right">操作</TableHead>
+                          </>
+                        ) : (
+                          <>
+                            <TableHead>名稱</TableHead>
+                            <TableHead>開盤時間</TableHead>
+                            <TableHead>結束時間</TableHead>
+                            {/* 已閉盤不需要進行中訂單欄位，只顯示已結束訂單 */}
+                            <TableHead className="w-[120px]">已結束訂單</TableHead>
+                            <TableHead className="text-right">操作</TableHead>
+                          </>
+                        )}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                   {sessions.map(session => (
                     <TableRow key={session.id}>
                       {statusFilter === 'PENDING' ? (
@@ -1118,14 +1132,7 @@ export function OpeningSettingsPage() {
                           <TableCell className="font-medium">{session.name}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {session.description || '-'}
-                          </TableCell>
-                          <TableCell className="w-[120px]">
-                            {session.initialResult === 'WIN'
-                              ? '全贏'
-                              : session.initialResult === 'LOSE'
-                                ? '全輸'
-                                : '個別控制'}
-                          </TableCell>
+                            </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button
@@ -1275,7 +1282,7 @@ export function OpeningSettingsPage() {
           setDesiredOutcomes={setDesiredOutcomes}
           api={api}
           switchDebounceRef={switchDebounceRef}
-          tradingSocketRef={tradingSocketRef}
+          activeCount={activeCount}
         />
       )}
 
@@ -1287,6 +1294,15 @@ export function OpeningSettingsPage() {
         onSuccess={() => {
           setIsEditDialogOpen(false);
           fetchSessions();
+          fetchActiveCount();
+        }}
+        activeCount={activeCount}
+        onSessionStarted={() => {
+          // 大盤啟用成功後，切換到「進行中」分頁並刷新
+          setStatusFilter('ACTIVE');
+          setCurrentPage(1);
+          fetchSessions();
+          fetchActiveCount();
         }}
       />
 
@@ -1454,11 +1470,11 @@ interface ActiveRealTradesSectionProps {
   setDesiredOutcomes: React.Dispatch<React.SetStateAction<Record<string, 'WIN' | 'LOSE'>>>;
   api: AxiosInstance | null;
   switchDebounceRef: React.MutableRefObject<Record<string, ReturnType<typeof setTimeout>>>;
-  tradingSocketRef: React.MutableRefObject<TradeUpdatesSocket | null>;
+  activeCount?: number; // 當前正在進行的盤數量
 }
 
 const ActiveRealTradesSection = memo(
-  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, api, switchDebounceRef, tradingSocketRef }: ActiveRealTradesSectionProps) => {
+  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, api, switchDebounceRef, activeCount = 0 }: ActiveRealTradesSectionProps) => {
     const { toast } = useToast();
     const [now, setNow] = useState<number>(() => Date.now());
     const [durationFilter, setDurationFilter] =
@@ -1660,30 +1676,135 @@ const ActiveRealTradesSection = memo(
               </Button>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">載入真實交易中...</div>
-          ) : filteredTrades.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              {durationFilter === 'FINISHED' ? '暫無已結束的真實交易' : '暫無進行中的真實交易'}
-            </div>
-          ) : (
-            <div className="border rounded-lg overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {!hideOrderNumber && <TableHead>訂單號</TableHead>}
-                    <TableHead>用戶</TableHead>
-                    <TableHead>大盤</TableHead>
-                    <TableHead>交易對</TableHead>
-                    <TableHead>方向</TableHead>
-                    <TableHead>下注秒數</TableHead>
-                    <TableHead>入場價</TableHead>
-                    <TableHead>投資金額</TableHead>
-                    <TableHead>入場時間</TableHead>
-                    <TableHead className="min-w-[150px]">到期時間</TableHead>
-                    <TableHead className="text-right">輸 → 贏</TableHead>
+        ) : (
+          <div className="border rounded-lg overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {!hideOrderNumber && <TableHead>訂單號</TableHead>}
+                  <TableHead>用戶</TableHead>
+                  <TableHead>大盤</TableHead>
+                  <TableHead>交易對</TableHead>
+                  <TableHead>方向</TableHead>
+                  <TableHead>下注秒數</TableHead>
+                  <TableHead>入場價</TableHead>
+                  <TableHead>投資金額</TableHead>
+                  <TableHead>入場時間</TableHead>
+                  <TableHead className="min-w-[150px]">到期時間</TableHead>
+                  <TableHead className="text-right">輸 → 贏</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredTrades.map(trade => (
+                  <TableRow key={trade.id}>
+                    {!hideOrderNumber && (
+                      <TableCell className="font-mono text-sm">{trade.orderNumber}</TableCell>
+                    )}
+                    <TableCell className="font-medium">{trade.userName || '-'}</TableCell>
+                    <TableCell className="font-medium">{trade.marketSessionName || '-'}</TableCell>
+                    <TableCell className="min-w-[120px]">
+                      <Badge variant="outline">{trade.assetType}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={trade.direction === 'CALL' ? 'success' : 'destructive'} className="whitespace-nowrap">
+                        {trade.direction === 'CALL' ? '看漲' : '看跌'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{getDurationSeconds(trade.entryTime, trade.expiryTime)}s</TableCell>
+                    <TableCell className="font-medium">
+                      ${typeof trade.entryPrice === 'number'
+                        ? trade.entryPrice.toFixed(2)
+                        : Number(trade.entryPrice || 0).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      ${typeof trade.investAmount === 'number'
+                        ? trade.investAmount.toFixed(2)
+                        : Number(trade.investAmount || 0).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-sm">{formatTime(trade.entryTime)}</TableCell>
+                    <TableCell className="text-sm min-w-[150px]">
+                      {formatTime(trade.expiryTime)}
+                      <div className="text-xs text-muted-foreground mt-1">
+                        倒數：{getRemainingSeconds(trade.expiryTime)} 秒
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {durationFilter === 'FINISHED' || trade.status === 'SETTLED' || trade.status === 'CANCELED' ? (
+                        <div
+                          className={cn(
+                            'font-medium',
+                            typeof trade.actualReturn === 'number'
+                              ? trade.actualReturn >= 0
+                                ? 'text-green-600'
+                                : 'text-red-600'
+                              : 'text-muted-foreground'
+                          )}
+                        >
+                          {typeof trade.actualReturn === 'number'
+                            ? `${trade.actualReturn >= 0 ? '+' : '-'}$${Math.abs(trade.actualReturn).toFixed(2)}`
+                            : '-'}
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-xs text-muted-foreground">輸</span>
+                          <Switch
+                            disabled={
+                              quickUpdatingIds.has(trade.id) || 
+                              activeCount === 0 || 
+                              trades.length === 0 ||
+                              !trade.marketSessionId // 如果訂單沒有大盤ID，禁用輸贏控制
+                            }
+                            checked={(desiredOutcomes[trade.id] || 'LOSE') === 'WIN'}
+                            onCheckedChange={async (checked) => {
+                              const outcome = checked ? 'WIN' : 'LOSE';
+                              
+                              // 更新前端狀態
+                              setDesiredOutcomes(prev => ({ ...prev, [trade.id]: outcome }));
+                              
+                              // 清除之前的防抖定時器
+                              if (switchDebounceRef.current[trade.id]) {
+                                clearTimeout(switchDebounceRef.current[trade.id]);
+                              }
+                              
+                              // 無論切換到「贏」或「輸」都要調用 API 設置期望結果（不結算）
+                              // 因為如果之前設置過「贏」，切換回「輸」時也需要通知後端
+                              // 注意：這裡只設置期望結果，不傳 exitPrice，不會立即結算
+                              // 實際結算會由後端在倒數結束後根據設置的期望結果自動執行
+                              switchDebounceRef.current[trade.id] = setTimeout(async () => {
+                                if (!api) {
+                                  toast({
+                                    title: '錯誤',
+                                    description: '無法連接到服務，請檢查網絡連接',
+                                    variant: 'destructive'
+                                  });
+                                  return;
+                                }
+                                
+                                try {
+                                  await transactionService.forceSettle(api, trade.orderNumber, {
+                                    result: outcome
+                                    // 不傳 exitPrice，這樣不會立即結算，只設置期望結果
+                                  });
+                                } catch (error) {
+                                  console.error('Failed to set outcome:', error);
+                                  // 失敗時恢復狀態為原來的狀態（切換前的狀態）
+                                  setDesiredOutcomes(prev => ({ ...prev, [trade.id]: checked ? 'LOSE' : 'WIN' }));
+                                  toast({
+                                    title: '錯誤',
+                                    description: '設置失敗，請重試',
+                                    variant: 'destructive'
+                                  });
+                                } finally {
+                                  delete switchDebounceRef.current[trade.id];
+                                }
+                              }, 300);
+                            }}
+                            aria-label="切換輸贏"
+                          />
+                          <span className="text-xs text-muted-foreground">贏</span>
+                        </div>
+                      )}
+                    </TableCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

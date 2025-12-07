@@ -105,6 +105,31 @@ export function OpeningSessionHistoryPage() {
     return transactions.filter(txn => txn.orderNumber.toLowerCase().includes(keyword));
   }, [transactions, orderSearch]);
 
+  // 計算統計數據
+  const statistics = useMemo(() => {
+    const total = filteredTransactions.length;
+    const settled = filteredTransactions.filter(t => t.status === 'SETTLED');
+    const winTrades = settled.filter(t => {
+      const returnValue = Number(t.actualReturn ?? 0);
+      return returnValue > 0;
+    });
+    const loseTrades = settled.filter(t => {
+      const returnValue = Number(t.actualReturn ?? 0);
+      return returnValue < 0;
+    });
+    
+    const winAmount = winTrades.reduce((sum, t) => sum + Number(t.actualReturn ?? 0), 0);
+    const loseAmount = Math.abs(loseTrades.reduce((sum, t) => sum + Number(t.actualReturn ?? 0), 0));
+    
+    return {
+      total,
+      winCount: winTrades.length,
+      winAmount,
+      loseCount: loseTrades.length,
+      loseAmount
+    };
+  }, [filteredTransactions]);
+
   const formatDateTime = (value?: string | null) => {
     return formatTaiwanDateTime(value, {
       second: undefined,
@@ -179,6 +204,45 @@ export function OpeningSessionHistoryPage() {
         </CardContent>
       </Card>
 
+      {/* 統計卡片 */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-medium">總訂單數</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{statistics.total}</div>
+            <p className="text-xs text-muted-foreground mt-1">筆訂單</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-medium">玩家盈利</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {statistics.winCount} 筆
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              金額：<span className="text-green-600 font-medium">+${statistics.winAmount.toFixed(2)}</span>
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-medium">玩家虧損</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">
+              {statistics.loseCount} 筆
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              金額：<span className="text-red-600 font-medium">-${statistics.loseAmount.toFixed(2)}</span>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2 flex-wrap">
@@ -243,6 +307,7 @@ export function OpeningSessionHistoryPage() {
                     <TableHead>入場時間</TableHead>
                     <TableHead>到期時間</TableHead>
                     <TableHead>狀態</TableHead>
+                    <TableHead className="text-right">盈虧</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -263,6 +328,21 @@ export function OpeningSessionHistoryPage() {
                         <Badge variant={trade.status === 'PENDING' ? 'default' : trade.status === 'SETTLED' ? 'outline' : 'destructive'}>
                           {trade.status === 'PENDING' ? '進行中' : trade.status === 'SETTLED' ? '已結束' : '已取消'}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {trade.status === 'SETTLED' ? (
+                          (() => {
+                            const returnValue = Number(trade.actualReturn ?? 0);
+                            const isWin = returnValue > 0;
+                            return (
+                              <div className={`font-medium ${isWin ? 'text-green-600' : 'text-red-600'}`}>
+                                {isWin ? '盈利' : '虧損'} {isWin ? '+' : ''}${returnValue.toFixed(2)}
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
