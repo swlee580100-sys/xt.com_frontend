@@ -1676,135 +1676,30 @@ const ActiveRealTradesSection = memo(
               </Button>
             </div>
           </div>
-        ) : (
-          <div className="border rounded-lg overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {!hideOrderNumber && <TableHead>訂單號</TableHead>}
-                  <TableHead>用戶</TableHead>
-                  <TableHead>大盤</TableHead>
-                  <TableHead>交易對</TableHead>
-                  <TableHead>方向</TableHead>
-                  <TableHead>下注秒數</TableHead>
-                  <TableHead>入場價</TableHead>
-                  <TableHead>投資金額</TableHead>
-                  <TableHead>入場時間</TableHead>
-                  <TableHead className="min-w-[150px]">到期時間</TableHead>
-                  <TableHead className="text-right">輸 → 贏</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTrades.map(trade => (
-                  <TableRow key={trade.id}>
-                    {!hideOrderNumber && (
-                      <TableCell className="font-mono text-sm">{trade.orderNumber}</TableCell>
-                    )}
-                    <TableCell className="font-medium">{trade.userName || '-'}</TableCell>
-                    <TableCell className="font-medium">{trade.marketSessionName || '-'}</TableCell>
-                    <TableCell className="min-w-[120px]">
-                      <Badge variant="outline">{trade.assetType}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={trade.direction === 'CALL' ? 'success' : 'destructive'} className="whitespace-nowrap">
-                        {trade.direction === 'CALL' ? '看漲' : '看跌'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{getDurationSeconds(trade.entryTime, trade.expiryTime)}s</TableCell>
-                    <TableCell className="font-medium">
-                      ${typeof trade.entryPrice === 'number'
-                        ? trade.entryPrice.toFixed(2)
-                        : Number(trade.entryPrice || 0).toFixed(2)}
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      ${typeof trade.investAmount === 'number'
-                        ? trade.investAmount.toFixed(2)
-                        : Number(trade.investAmount || 0).toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-sm">{formatTime(trade.entryTime)}</TableCell>
-                    <TableCell className="text-sm min-w-[150px]">
-                      {formatTime(trade.expiryTime)}
-                      <div className="text-xs text-muted-foreground mt-1">
-                        倒數：{getRemainingSeconds(trade.expiryTime)} 秒
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {durationFilter === 'FINISHED' || trade.status === 'SETTLED' || trade.status === 'CANCELED' ? (
-                        <div
-                          className={cn(
-                            'font-medium',
-                            typeof trade.actualReturn === 'number'
-                              ? trade.actualReturn >= 0
-                                ? 'text-green-600'
-                                : 'text-red-600'
-                              : 'text-muted-foreground'
-                          )}
-                        >
-                          {typeof trade.actualReturn === 'number'
-                            ? `${trade.actualReturn >= 0 ? '+' : '-'}$${Math.abs(trade.actualReturn).toFixed(2)}`
-                            : '-'}
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="text-xs text-muted-foreground">輸</span>
-                          <Switch
-                            disabled={
-                              quickUpdatingIds.has(trade.id) || 
-                              activeCount === 0 || 
-                              trades.length === 0 ||
-                              !trade.marketSessionId // 如果訂單沒有大盤ID，禁用輸贏控制
-                            }
-                            checked={(desiredOutcomes[trade.id] || 'LOSE') === 'WIN'}
-                            onCheckedChange={async (checked) => {
-                              const outcome = checked ? 'WIN' : 'LOSE';
-                              
-                              // 更新前端狀態
-                              setDesiredOutcomes(prev => ({ ...prev, [trade.id]: outcome }));
-                              
-                              // 清除之前的防抖定時器
-                              if (switchDebounceRef.current[trade.id]) {
-                                clearTimeout(switchDebounceRef.current[trade.id]);
-                              }
-                              
-                              // 無論切換到「贏」或「輸」都要調用 API 設置期望結果（不結算）
-                              // 因為如果之前設置過「贏」，切換回「輸」時也需要通知後端
-                              // 注意：這裡只設置期望結果，不傳 exitPrice，不會立即結算
-                              // 實際結算會由後端在倒數結束後根據設置的期望結果自動執行
-                              switchDebounceRef.current[trade.id] = setTimeout(async () => {
-                                if (!api) {
-                                  toast({
-                                    title: '錯誤',
-                                    description: '無法連接到服務，請檢查網絡連接',
-                                    variant: 'destructive'
-                                  });
-                                  return;
-                                }
-                                
-                                try {
-                                  await transactionService.forceSettle(api, trade.orderNumber, {
-                                    result: outcome
-                                    // 不傳 exitPrice，這樣不會立即結算，只設置期望結果
-                                  });
-                                } catch (error) {
-                                  console.error('Failed to set outcome:', error);
-                                  // 失敗時恢復狀態為原來的狀態（切換前的狀態）
-                                  setDesiredOutcomes(prev => ({ ...prev, [trade.id]: checked ? 'LOSE' : 'WIN' }));
-                                  toast({
-                                    title: '錯誤',
-                                    description: '設置失敗，請重試',
-                                    variant: 'destructive'
-                                  });
-                                } finally {
-                                  delete switchDebounceRef.current[trade.id];
-                                }
-                              }, 300);
-                            }}
-                            aria-label="切換輸贏"
-                          />
-                          <span className="text-xs text-muted-foreground">贏</span>
-                        </div>
-                      )}
-                    </TableCell>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="text-center py-8 text-muted-foreground">載入真實交易中...</div>
+          ) : filteredTrades.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              {durationFilter === 'FINISHED' ? '暫無已結束的真實交易' : '暫無進行中的真實交易'}
+            </div>
+          ) : (
+            <div className="border rounded-lg overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {!hideOrderNumber && <TableHead>訂單號</TableHead>}
+                    <TableHead>用戶</TableHead>
+                    <TableHead>大盤</TableHead>
+                    <TableHead>交易對</TableHead>
+                    <TableHead>方向</TableHead>
+                    <TableHead>下注秒數</TableHead>
+                    <TableHead>入場價</TableHead>
+                    <TableHead>投資金額</TableHead>
+                    <TableHead>入場時間</TableHead>
+                    <TableHead className="min-w-[150px]">到期時間</TableHead>
+                    <TableHead className="text-right">輸 → 贏</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
