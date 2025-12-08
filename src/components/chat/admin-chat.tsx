@@ -16,7 +16,6 @@ import { supportService, SupportSocketService } from '@/services/support-chat';
 import { appConfig } from '@/config/env';
 import type { ChatConversation, ChatMessage } from '@/types/support';
 import { ConversationStatus, MessageType, SenderType } from '@/types/support';
-import { formatTaiwanTime, formatTaiwanDate } from '@/lib/date-utils';
 
 export const AdminChat: React.FC = () => {
   const { api, user, tokens } = useAuth();
@@ -33,8 +32,6 @@ export const AdminChat: React.FC = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [activeTab, setActiveTab] = useState('active');
   const selectedConversationRef = useRef<ChatConversation | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // 获取对话列表
   const fetchConversations = useCallback(async (status?: ConversationStatus) => {
@@ -96,15 +93,6 @@ export const AdminChat: React.FC = () => {
     }
   }, [api, adminUser]);
 
-  // 滾動到底部
-  const scrollToBottom = useCallback(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    } else if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-    }
-  }, []);
-
   // 选择对话
   const selectConversation = useCallback(async (conversation: ChatConversation) => {
     setSelectedConversation(conversation);
@@ -140,9 +128,6 @@ export const AdminChat: React.FC = () => {
         });
         setMessages(messageResponse.messages || messageResponse.data || []);
       }
-      
-      // 載入訊息後自動滾動到底部
-      setTimeout(() => scrollToBottom(), 100);
 
       // 如果有未讀訊息，標記為已讀
       if (conversation.adminUnreadCount > 0 && socketService) {
@@ -167,7 +152,7 @@ export const AdminChat: React.FC = () => {
         variant: 'destructive'
       });
     }
-  }, [api, toast, activeTab, fetchConversations, socketService, fetchUnreadCount, scrollToBottom]);
+  }, [api, toast, activeTab, fetchConversations, socketService, fetchUnreadCount]);
 
   // 发送消息
   const sendMessage = useCallback(async () => {
@@ -184,8 +169,6 @@ export const AdminChat: React.FC = () => {
       const message = await supportService.admin.sendMessage(api, messageData);
       setMessages(prev => [...prev, message]);
       setInputMessage('');
-      // 發送消息後滾動到底部
-      setTimeout(() => scrollToBottom(), 100);
     } catch (error) {
       console.error('Failed to send message:', error);
       toast({
@@ -196,7 +179,7 @@ export const AdminChat: React.FC = () => {
     } finally {
       setIsSending(false);
     }
-  }, [inputMessage, selectedConversation, api, toast, scrollToBottom]);
+  }, [inputMessage, selectedConversation, api, toast]);
 
   // 关闭对话（處理完畢）
   const closeConversation = useCallback(async () => {
@@ -267,8 +250,6 @@ export const AdminChat: React.FC = () => {
     socket.on('newMessage', (message: ChatMessage) => {
       if (selectedConversationRef.current && message.conversationId === selectedConversationRef.current.id) {
         setMessages(prev => [...prev, message]);
-        // 收到新消息時自動滾動到底部
-        setTimeout(() => scrollToBottom(), 100);
       }
       // 刷新对话列表以更新最后消息时间
       fetchConversations(activeTab === 'active' ? ConversationStatus.ACTIVE : ConversationStatus.CLOSED);
@@ -311,14 +292,6 @@ export const AdminChat: React.FC = () => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
 
-  // 當訊息列表更新時，自動滾動到底部
-  useEffect(() => {
-    if (messages.length > 0) {
-      // 使用 setTimeout 確保 DOM 已更新
-      setTimeout(() => scrollToBottom(), 100);
-    }
-  }, [messages, scrollToBottom]);
-
   useEffect(() => {
     if (socketService && selectedConversation) {
       // 等待 socket 连接后再加入
@@ -350,16 +323,14 @@ export const AdminChat: React.FC = () => {
   }, [activeTab, fetchConversations]);
 
   const formatTime = (dateString: string) => {
-    return formatTaiwanTime(dateString, {
-      second: undefined,
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('zh-TW', {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
   const formatDate = (dateString: string) => {
-    return formatTaiwanDate(dateString);
-  };
-
-  const formatDateOld = (dateString: string) => {
     const date = new Date(dateString);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -571,10 +542,7 @@ export const AdminChat: React.FC = () => {
 
               <CardContent className="flex-1 flex flex-col p-0 overflow-hidden min-h-0">
                 {/* 消息列表 */}
-                <div 
-                  ref={messagesContainerRef}
-                  className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0"
-                >
+                <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
                   {messages
                     .filter(message =>
                       // 过滤掉系统消息（如"管理员已加入对话"）
@@ -638,8 +606,6 @@ export const AdminChat: React.FC = () => {
                         </React.Fragment>
                       );
                     })}
-                  {/* 用於滾動定位的錨點 */}
-                  <div ref={messagesEndRef} />
                 </div>
 
                 {/* 输入区域 */}

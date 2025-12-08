@@ -63,16 +63,15 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
   // 解析並修正可能的圖片 URL（處理 http 在 https 下被阻擋、相對路徑等）
   const buildImageUrl = (raw?: string | null): string | undefined => {
     if (!raw) return undefined;
-    const val = String(raw).trim();
-    if (!val) return undefined;
-    
+    const val = String(raw);
     // 絕對網址
     if (/^https?:\/\//i.test(val)) {
-      // 如果是 http 協議，直接返回（讓瀏覽器處理混合內容問題）
-      // 如果需要，可以在服務器端配置 CORS 和允許混合內容
+      if (window.location.protocol === 'https:' && val.startsWith('http://')) {
+        // 嘗試升級為 https 以避免混用內容被阻擋
+        return val.replace(/^http:\/\//i, 'https://');
+      }
       return val;
     }
-    
     // 相對路徑：以 API 的 origin 作為基底
     try {
       const api = appConfig.apiUrl || '';
@@ -330,57 +329,46 @@ export const EditUserDialog = ({ user, open, onOpenChange }: EditUserDialogProps
                   {/* 正面 */}
                   <div>
                     <p className="text-sm text-gray-500 mb-2">身分證正面</p>
-                    {user.idCardFront ? (
-                      <img
-                        src={buildImageUrl(user.idCardFront) || user.idCardFront}
-                        alt="身分證正面"
-                        className="w-full h-48 object-contain border rounded cursor-pointer hover:opacity-80 transition-opacity bg-gray-50"
-                        onClick={() => {
+                    <img
+                      src={user.idCardFront ? buildImageUrl(user.idCardFront) : '/id-card-placeholder.svg'}
+                      alt="身分證正面"
+                      className={`w-full h-48 object-contain border rounded ${user.idCardFront ? 'cursor-pointer hover:opacity-80' : ''} transition-opacity`}
+                      onClick={() => {
+                        if (user.idCardFront) {
                           const url = buildImageUrl(user.idCardFront) || user.idCardFront;
                           window.open(url, '_blank');
-                        }}
-                        onError={(e) => {
-                          const el = e.currentTarget as HTMLImageElement;
-                          // 如果圖片加載失敗，顯示占位符
-                          el.onerror = null; // 防止無限循環
-                          el.src = '/id-card-placeholder.svg';
-                          el.style.opacity = '0.5';
-                        }}
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-48 border rounded bg-gray-50 flex items-center justify-center text-gray-400 text-sm">
-                        無身分證正面照片
-                      </div>
-                    )}
+                        }
+                      }}
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        // 如果是 http 且當前為 https，嘗試升級
+                        if (el.src.startsWith('http://') && window.location.protocol === 'https:') {
+                          el.src = el.src.replace('http://', 'https://');
+                        }
+                      }}
+                    />
                   </div>
 
                   {/* 反面 */}
                   <div>
                     <p className="text-sm text-gray-500 mb-2">身分證反面</p>
-                    {user.idCardBack ? (
-                      <img
-                        src={buildImageUrl(user.idCardBack) || user.idCardBack}
-                        alt="身分證反面"
-                        className="w-full h-48 object-contain border rounded cursor-pointer hover:opacity-80 transition-opacity bg-gray-50"
-                        onClick={() => {
+                    <img
+                      src={user.idCardBack ? buildImageUrl(user.idCardBack) : '/id-card-placeholder.svg'}
+                      alt="身分證反面"
+                      className={`w-full h-48 object-contain border rounded ${user.idCardBack ? 'cursor-pointer hover:opacity-80' : ''} transition-opacity`}
+                      onClick={() => {
+                        if (user.idCardBack) {
                           const url = buildImageUrl(user.idCardBack) || user.idCardBack;
                           window.open(url, '_blank');
-                        }}
-                        onError={(e) => {
-                          const el = e.currentTarget as HTMLImageElement;
-                          // 如果圖片加載失敗，顯示占位符
-                          el.onerror = null; // 防止無限循環
-                          el.src = '/id-card-placeholder.svg';
-                          el.style.opacity = '0.5';
-                        }}
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-48 border rounded bg-gray-50 flex items-center justify-center text-gray-400 text-sm">
-                        無身分證反面照片
-                      </div>
-                    )}
+                        }
+                      }}
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        if (el.src.startsWith('http://') && window.location.protocol === 'https:') {
+                          el.src = el.src.replace('http://', 'https://');
+                        }
+                      }}
+                    />
                   </div>
                 </div>
               </div>

@@ -87,8 +87,8 @@ export const marketSessionAdminService = {
     api: AxiosInstance,
     data: CreateMarketSessionRequest
   ): Promise<MarketSession> => {
-    const response = await api.post<MarketSession | { data: MarketSession }>('/admin/market-sessions', data);
-    return unwrapData<MarketSession>(response.data);
+    const response = await api.post<MarketSession>('/admin/market-sessions', data);
+    return response.data;
   },
 
   /**

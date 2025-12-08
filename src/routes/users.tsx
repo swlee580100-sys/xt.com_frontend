@@ -9,15 +9,12 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { MoreHorizontal, ChevronUp, ChevronDown, Pencil, UserX, UserCheck, Trash2, Key } from 'lucide-react';
+import { MoreHorizontal, ChevronUp, ChevronDown, Pencil, UserX, UserCheck, Trash2 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
-import { useToast } from '@/hooks/useToast';
 import { userService } from '@/services/users';
 import type { User, QueryUsersParams } from '@/types/user';
 import { cn } from '@/lib/utils';
-import { formatTaiwanDateTime } from '@/lib/date-utils';
-import { appConfig } from '@/config/env';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,14 +50,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { EditUserDialog } from '@/components/users/edit-user-dialog';
 
 export const UsersPage = () => {
   const navigate = useNavigate();
   const { api } = useAuth();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // State
@@ -73,9 +67,6 @@ export const UsersPage = () => {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
-  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
-  const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
-  const [newPassword, setNewPassword] = useState('');
   const registrationSortValue =
     sorting[0]?.id === 'createdAt'
       ? sorting[0]?.desc
@@ -132,55 +123,6 @@ export const UsersPage = () => {
     },
   });
 
-  const resetPasswordMutation = useMutation({
-    mutationFn: ({ id, newPassword }: { id: string; newPassword: string }) =>
-      userService.resetPassword(api, id, { newPassword }),
-    onSuccess: () => {
-      toast({
-        title: '成功',
-        description: '密碼已重置',
-      });
-      setResetPasswordDialogOpen(false);
-      setUserToResetPassword(null);
-      setNewPassword('');
-    },
-    onError: (error: any) => {
-      toast({
-        title: '錯誤',
-        description: error?.response?.data?.message || error?.message || '重置密碼失敗',
-        variant: 'destructive',
-      });
-    },
-  });
-
-  // 構建圖片 URL 的輔助函數
-  const buildImageUrl = (raw?: string | null): string | undefined => {
-    if (!raw) return undefined;
-    const val = String(raw);
-    // 絕對網址
-    if (/^https?:\/\//i.test(val)) {
-      if (window.location.protocol === 'https:' && val.startsWith('http://')) {
-        return val.replace(/^http:\/\//i, 'https://');
-      }
-      return val;
-    }
-    // 相對路徑：以 API 的 origin 作為基底
-    try {
-      const api = appConfig.apiUrl || '';
-      let originBase: string;
-      if (/^https?:\/\//i.test(api)) {
-        const u = new URL(api);
-        originBase = `${u.protocol}//${u.host}`;
-      } else {
-        originBase = window.location.origin;
-      }
-      const normalized = val.startsWith('/') ? val : `/${val}`;
-      return `${originBase}${normalized}`;
-    } catch {
-      return val;
-    }
-  };
-
   // Table columns
   const columns: ColumnDef<User>[] = [
     {
@@ -191,34 +133,6 @@ export const UsersPage = () => {
     {
       accessorKey: 'displayName',
       header: '顯示名稱',
-      cell: ({ row }) => {
-        const user = row.original;
-        const avatarUrl = buildImageUrl(user.avatar);
-        return (
-          <div className="flex items-center gap-3">
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt={user.displayName}
-                className="h-10 w-10 rounded-full object-cover"
-                onError={(e) => {
-                  const el = e.currentTarget as HTMLImageElement;
-                  if (el.src.startsWith('http://') && window.location.protocol === 'https:') {
-                    el.src = el.src.replace('http://', 'https://');
-                  } else {
-                    el.style.display = 'none';
-                  }
-                }}
-              />
-            ) : (
-              <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm font-medium">
-                {user.displayName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || '?'}
-              </div>
-            )}
-            <span>{user.displayName}</span>
-          </div>
-        );
-      },
     },
     {
       accessorKey: 'phoneNumber',
@@ -283,7 +197,7 @@ export const UsersPage = () => {
       header: '註冊時間',
       cell: ({ row }) => {
         const value = row.getValue('createdAt') as string | null;
-        return value ? formatTaiwanDateTime(value) : '-';
+        return value ? new Date(value).toLocaleString('zh-TW') : '-';
       },
       meta: {
         minWidth: '160px'
@@ -313,7 +227,7 @@ export const UsersPage = () => {
       header: '最後登入',
       cell: ({ row }) => {
         const date = row.getValue('lastLoginAt') as string | null;
-        return date ? formatTaiwanDateTime(date) : '從未登入';
+        return date ? new Date(date).toLocaleString('zh-TW') : '從未登入';
       },
     },
     {
@@ -361,15 +275,6 @@ export const UsersPage = () => {
                   激活用戶
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem
-                onClick={() => {
-                  setUserToResetPassword(user);
-                  setResetPasswordDialogOpen(true);
-                }}
-              >
-                <Key className="mr-2 h-4 w-4" />
-                重置密碼
-              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-red-600"
@@ -609,62 +514,6 @@ export const UsersPage = () => {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? '刪除中...' : '確認刪除'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reset Password Dialog */}
-      <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>重置密碼</DialogTitle>
-            <DialogDescription>
-              為用戶 "{userToResetPassword?.displayName}" ({userToResetPassword?.email}) 設置新密碼
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="newPassword">新密碼</Label>
-              <Input
-                id="newPassword"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="請輸入新密碼"
-                autoComplete="new-password"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setResetPasswordDialogOpen(false);
-                setUserToResetPassword(null);
-                setNewPassword('');
-              }}
-            >
-              取消
-            </Button>
-            <Button
-              onClick={() => {
-                if (!userToResetPassword || !newPassword.trim()) {
-                  toast({
-                    title: '錯誤',
-                    description: '請輸入新密碼',
-                    variant: 'destructive',
-                  });
-                  return;
-                }
-                resetPasswordMutation.mutate({
-                  id: userToResetPassword.id,
-                  newPassword: newPassword.trim(),
-                });
-              }}
-              disabled={resetPasswordMutation.isPending || !newPassword.trim()}
-            >
-              {resetPasswordMutation.isPending ? '重置中...' : '確認重置'}
             </Button>
           </DialogFooter>
         </DialogContent>

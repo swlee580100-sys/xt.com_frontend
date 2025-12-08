@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Edit2, Trash2, Image as ImageIcon, X } from 'lucide-react';
+import { Edit2, Trash2 } from 'lucide-react';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,54 +36,6 @@ import type {
   DepositAddressConfig,
   UpdateDepositAddressConfigDto
 } from '@/types/settings';
-
-// 預設頭像列表（來自 Unsplash，涵蓋不同國家、性別，共40個，確保所有URL唯一）
-const PRESET_AVATARS = [
-  // 亞洲 - 男性 (10個)
-  { url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=faces', country: '中國', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&h=200&fit=crop&crop=faces', country: '日本', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=faces', country: '韓國', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1507591064344-4c6ce005b128?w=200&h=200&fit=crop&crop=faces', country: '印度', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1506277886164-e25aa3f4ef7f?w=200&h=200&fit=crop&crop=faces', country: '泰國', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=faces', country: '越南', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=200&h=200&fit=crop&crop=faces', country: '印尼', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1519345182560-3f2917c472ef?w=200&h=200&fit=crop&crop=faces', country: '馬來西亞', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1508341591423-4347099e1f19?w=200&h=200&fit=crop&crop=faces', country: '菲律賓', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&h=200&fit=crop&crop=faces', country: '新加坡', gender: '男' },
-  // 亞洲 - 女性 (10個)
-  { url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=faces', country: '中國', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop&crop=faces', country: '日本', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&h=200&fit=crop&crop=faces', country: '韓國', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop&crop=faces', country: '印度', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=200&h=200&fit=crop&crop=faces', country: '泰國', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=200&h=200&fit=crop&crop=faces', country: '越南', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=200&h=200&fit=crop&crop=faces', country: '印尼', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1654110455429-cf322b40a906?w=200&h=200&fit=crop&crop=faces', country: '馬來西亞', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1521577352947-9bb58764b69a?w=200&h=200&fit=crop&crop=faces', country: '菲律賓', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1524502397800-2eeaad7c3fe5?w=200&h=200&fit=crop&crop=faces', country: '新加坡', gender: '女' },
-  // 歐洲 - 男性 (10個)
-  { url: 'https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=200&h=200&fit=crop&crop=faces', country: '英國', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1566492031773-4f4e44671d66?w=200&h=200&fit=crop&crop=faces', country: '法國', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=200&h=200&fit=crop&crop=faces', country: '德國', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=200&h=200&fit=crop&crop=faces', country: '義大利', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?w=200&h=200&fit=crop&crop=faces', country: '西班牙', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&h=200&fit=crop&crop=faces', country: '荷蘭', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=200&h=200&fit=crop&crop=faces', country: '瑞典', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&h=200&fit=crop&crop=faces', country: '挪威', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1552058544-f2b08422138a?w=200&h=200&fit=crop&crop=faces', country: '丹麥', gender: '男' },
-  { url: 'https://images.unsplash.com/photo-1463453091185-61582044d556?w=200&h=200&fit=crop&crop=faces', country: '波蘭', gender: '男' },
-  // 歐洲 - 女性 (10個)
-  { url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&h=200&fit=crop&crop=faces', country: '英國', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=200&h=200&fit=crop&crop=faces', country: '法國', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1622091798745-8149dcf24fda?w=200&h=200&fit=crop&crop=faces', country: '德國', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&h=200&fit=crop&crop=faces', country: '義大利', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=200&h=200&fit=crop&crop=faces', country: '西班牙', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1551836022-deb4988cc6c0?w=200&h=200&fit=crop&crop=faces', country: '荷蘭', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=200&h=200&fit=crop&crop=faces', country: '瑞典', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1543610892-0b1f7e6d8ac1?w=200&h=200&fit=crop&crop=faces', country: '挪威', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?w=200&h=200&fit=crop&crop=faces', country: '丹麥', gender: '女' },
-  { url: 'https://images.unsplash.com/photo-1558898479-33c0057a5d12?w=200&h=200&fit=crop&crop=faces', country: '波蘭', gender: '女' },
-];
 
 const tabs = [
   {
@@ -145,12 +97,20 @@ const leaderboardTypeLabel: Record<LeaderboardType, string> = {
   MONTHLY: '月榜'
 };
 
-import { formatTaiwanDate, formatTaiwanTime } from '@/lib/date-utils';
-
-// 格式化日期時間為兩行顯示（使用台灣時間）
+// 格式化日期時間為兩行顯示
 const formatDateTime = (dateString: string): string => {
-  const dateStr = formatTaiwanDate(dateString);
-  const timeStr = formatTaiwanTime(dateString);
+  const date = new Date(dateString);
+  const dateStr = date.toLocaleDateString('zh-TW', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric'
+  });
+  const timeStr = date.toLocaleTimeString('zh-TW', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
   return `${dateStr}\n${timeStr}`;
 };
 
@@ -218,7 +178,6 @@ export const CmsPage = () => {
 
   const [leaderboardDialogOpen, setLeaderboardDialogOpen] = useState(false);
   const [editingLeaderboard, setEditingLeaderboard] = useState<LeaderboardEntry | null>(null);
-  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [leaderboardFormData, setLeaderboardFormData] = useState<LeaderboardFormState>(() => ({
     ...initialLeaderboardFormState
   }));
@@ -1353,7 +1312,7 @@ export const CmsPage = () => {
                   ) : null}
                   {isLeaderboard ? (
                     <Button size="sm" onClick={handleCreateLeaderboard}>
-                      新增排行榜記錄
+                      新增排行榜记录
                     </Button>
                   ) : null}
                 </CardHeader>
@@ -1559,7 +1518,7 @@ export const CmsPage = () => {
                     <form onSubmit={handleLeaderboardSubmit} className="space-y-4">
                       <DialogHeader>
                         <DialogTitle>
-                          {editingLeaderboard ? '編輯排行榜記錄' : '新增排行榜記錄'}
+                          {editingLeaderboard ? '編輯排行榜记录' : '新增排行榜记录'}
                         </DialogTitle>
                       </DialogHeader>
 
@@ -1596,58 +1555,23 @@ export const CmsPage = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="leaderboard-avatar">頭像連結</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              id="leaderboard-avatar"
-                              value={leaderboardFormData.avatar}
-                              onChange={event =>
-                                setLeaderboardFormData(prev => ({
-                                  ...prev,
-                                  avatar: event.target.value
-                                }))
-                              }
-                              placeholder="https://..."
-                              disabled={isLeaderboardSubmitting}
-                              className="flex-1"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              onClick={() => setAvatarPickerOpen(true)}
-                              disabled={isLeaderboardSubmitting}
-                              title="選擇預設頭像"
-                            >
-                              <ImageIcon className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          {leaderboardFormData.avatar && (
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={leaderboardFormData.avatar}
-                                alt="頭像預覽"
-                                className="h-12 w-12 rounded-full object-cover border"
-                                onError={(e) => {
-                                  const img = e.currentTarget;
-                                  img.style.display = 'none';
-                                }}
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setLeaderboardFormData(prev => ({ ...prev, avatar: '' }))}
-                                disabled={isLeaderboardSubmitting}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
+                          <Label htmlFor="leaderboard-avatar">頭像链接</Label>
+                          <Input
+                            id="leaderboard-avatar"
+                            value={leaderboardFormData.avatar}
+                            onChange={event =>
+                              setLeaderboardFormData(prev => ({
+                                ...prev,
+                                avatar: event.target.value
+                              }))
+                            }
+                            placeholder="https://..."
+                            disabled={isLeaderboardSubmitting}
+                          />
                           {leaderboardFormErrors.avatar ? (
                             <p className="text-sm text-destructive">{leaderboardFormErrors.avatar}</p>
                           ) : (
-                            <p className="text-xs text-muted-foreground">可選，建議使用 CDN 圖片地址。點擊圖標按鈕可選擇預設頭像</p>
+                            <p className="text-xs text-muted-foreground">可選，建議使用 CDN 圖片地址</p>
                           )}
                         </div>
 
@@ -1778,70 +1702,6 @@ export const CmsPage = () => {
           );
         })}
       </Tabs>
-
-      {/* 頭像選擇器對話框 */}
-      <Dialog open={avatarPickerOpen} onOpenChange={setAvatarPickerOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>選擇預設頭像</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              點擊頭像即可選擇，或在下方的輸入框中手動輸入 URL
-            </p>
-            <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
-              {PRESET_AVATARS.map((avatar, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  onClick={() => {
-                    setLeaderboardFormData(prev => ({ ...prev, avatar: avatar.url }));
-                    setAvatarPickerOpen(false);
-                  }}
-                  className="relative group rounded-lg overflow-hidden border-2 border-transparent hover:border-primary transition-all"
-                >
-                  <img
-                    src={avatar.url}
-                    alt="頭像"
-                    className="w-full h-full object-cover aspect-square"
-                    onError={(e) => {
-                      const img = e.currentTarget;
-                      img.src = 'https://images.unsplash.com/photo-1654110455429-cf322b40a906?w=200&h=200&fit=crop&crop=faces';
-                    }}
-                  />
-                  <div className="absolute top-1 left-1 bg-black/70 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
-                    {index + 1}
-                  </div>
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                </button>
-              ))}
-            </div>
-            <div className="pt-4 border-t">
-              <Label htmlFor="custom-avatar-url">或手動輸入頭像 URL</Label>
-              <Input
-                id="custom-avatar-url"
-                value={leaderboardFormData.avatar}
-                onChange={event =>
-                  setLeaderboardFormData(prev => ({
-                    ...prev,
-                    avatar: event.target.value
-                  }))
-                }
-                placeholder="https://..."
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAvatarPickerOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={() => setAvatarPickerOpen(false)}>
-              確認
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

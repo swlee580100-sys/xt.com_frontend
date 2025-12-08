@@ -8,18 +8,46 @@
 // 判断是否为生产环境
 const isProduction = import.meta.env.PROD;
 
+// 自動將 HTTP 轉換為 HTTPS，WS 轉換為 WSS（如果前端在 HTTPS 上運行）
+const upgradeToSecure = (url: string): string => {
+  if (typeof window === 'undefined') return url;
+  
+  // 如果當前頁面是 HTTPS，將 HTTP/WS 升級為 HTTPS/WSS
+  if (window.location.protocol === 'https:') {
+    return url
+      .replace(/^http:\/\//i, 'https://')
+      .replace(/^ws:\/\//i, 'wss://');
+  }
+  
+  return url;
+};
+
 // API URL 配置
 // 生产环境使用相对路径，开发环境使用完整 URL
-const API_URL = import.meta.env.VITE_API_URL ?? (isProduction ? '/api' : 'http://localhost:3000/api');
+const getApiUrl = (): string => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+  
+  if (envApiUrl) {
+    return upgradeToSecure(envApiUrl);
+  }
+  
+  if (isProduction) {
+    return '/api';
+  }
+  
+  return 'http://localhost:3000/api';
+};
+
+const API_URL = getApiUrl();
 
 // WebSocket URL 配置
 // 生产环境自动使用当前域名，开发环境使用 localhost
 const getWsUrl = (): string => {
   const envWsUrl = import.meta.env.VITE_WS_URL;
 
-  // 如果环境变量有配置，直接使用
+  // 如果环境变量有配置，自動升級為安全協議
   if (envWsUrl) {
-    return envWsUrl;
+    return upgradeToSecure(envWsUrl);
   }
 
   // 生产环境使用当前域名

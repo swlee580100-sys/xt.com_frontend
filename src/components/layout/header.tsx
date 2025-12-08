@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BarChart3, ShoppingBag, Users, Settings, Home, FileText, UserCog, Menu, LogOut, AlarmClock, MessageCircle } from 'lucide-react';
+import { BarChart3, ShoppingBag, Users, Settings, Home, FileText, UserCog, Menu, LogOut } from 'lucide-react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,8 +19,6 @@ const navItems = [
   { to: '/market-data', label: '市場數據', icon: BarChart3 },
   { to: '/users', label: '用戶', icon: Users },
   // { to: '/operators', label: '操作員列表', icon: UserCog },
-  { to: '/opening-settings', label: '開盤設置', icon: AlarmClock },
-  { to: '/customer-service', label: '客服管理', icon: MessageCircle },
   { to: '/cms', label: 'CMS 管理', icon: FileText },
   { to: '/settings', label: '設置', icon: Settings }
 ];
@@ -32,18 +30,13 @@ const routeToPageName: Record<string, string> = {
   '/market-data': '市場數據',
   '/users': '用戶',
   // '/operators': '操作員列表',
-  '/opening-settings': '開盤設置',
-  '/customer-service': '客服管理',
   '/cms': 'CMS 管理',
   '/settings': '設置',
 };
 
 // 獲取當前頁面名稱
 const getCurrentPageName = (pathname: string): string => {
-  // 處理動態路由
-  if (pathname.startsWith('/opening-settings/')) {
-    return '開盤設置';
-  }
+  // 處理動態路由（如 /operators/$operatorId）
   // if (pathname.startsWith('/operators/')) {
   //   return '操作員詳情';
   // }
