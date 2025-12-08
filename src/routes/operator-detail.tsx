@@ -59,7 +59,7 @@ export const OperatorDetailPage = () => {
         variant: 'destructive',
       });
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   }, [api, operatorId, toast]);
 
@@ -153,12 +153,12 @@ export const OperatorDetailPage = () => {
         const entryTime = row.original.entryTime;
         const duration = row.original.duration;
         const status = row.original.status;
-        
+
         // 如果交易還在進行中，顯示「進行中」
         if (status === 'PENDING') {
           return <div className="text-sm text-muted-foreground">進行中</div>;
         }
-        
+
         // 計算出場時間 = 入場時間 + 交易秒數
         const exitTime = new Date(new Date(entryTime).getTime() + duration * 1000);
         return (
@@ -237,12 +237,12 @@ export const OperatorDetailPage = () => {
       cell: ({ row }) => {
         const returnValue = row.original.actualReturn;
         const status = row.original.status;
-        
+
         // 如果交易還在進行中，顯示「進行中」
         if (status === 'PENDING') {
           return <Badge variant="default">進行中</Badge>;
         }
-        
+
         // 根據實際收益判斷盈利/虧損
         if (returnValue > 0) {
           return <Badge variant="success" className="bg-green-500 text-white">盈利</Badge>;
@@ -350,21 +350,21 @@ export const OperatorDetailPage = () => {
           <CardTitle>操作員資訊</CardTitle>
         </CardHeader>
         <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
               <p className="text-sm text-muted-foreground">用戶名</p>
               <p className="font-medium">{admin.username}</p>
-                </div>
-                <div>
+            </div>
+            <div>
               <p className="text-sm text-muted-foreground">顯示名稱</p>
               <p className="font-medium">{admin.displayName || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">狀態</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">狀態</p>
               <Badge variant={admin.isActive ? 'success' : 'destructive'}>
                 {admin.isActive ? '啟用' : '停用'}
-                  </Badge>
-                </div>
+              </Badge>
+            </div>
             <div>
               <p className="text-sm text-muted-foreground">最後登入</p>
               <p className="font-medium">
@@ -383,17 +383,17 @@ export const OperatorDetailPage = () => {
                 {formatTaiwanDateTime(admin.createdAt)}
               </p>
             </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">總交易筆數</p>
-                  <p className="font-medium text-lg">{transactions.length}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">總收益</p>
-                  <p className={cn('font-medium text-lg', totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+            <div>
+              <p className="text-sm text-muted-foreground">總交易筆數</p>
+              <p className="font-medium text-lg">{transactions.length}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">總收益</p>
+              <p className={cn('font-medium text-lg', totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
                 {totalProfit >= 0 ? '+' : ''}${Math.abs(totalProfit).toFixed(2)}
-                  </p>
-                </div>
-              </div>
+              </p>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

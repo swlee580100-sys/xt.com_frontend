@@ -232,7 +232,7 @@ export const UserDetailPage = () => {
 
     // 根據實際收益判斷輸贏：actualReturn > 0 為贏，否則為輸
     const isWin = transactionToEdit.actualReturn > 0;
-    
+
     setEditForm({
       assetType: transactionToEdit.assetType,
       direction: transactionToEdit.direction,
@@ -275,15 +275,15 @@ export const UserDetailPage = () => {
 
       // 計算實際收益：根據輸贏狀態和投資金額計算
       const investAmount = parseInt(createForm.investAmount, 10) || 0;
-      
+
       // 如果用戶手動輸入了實際收益，使用輸入值；否則根據輸贏狀態計算
       let actualReturn = 0;
       if (createForm.actualReturn !== '' && createForm.actualReturn !== '0') {
         actualReturn = parseFloat(createForm.actualReturn) || 0;
       } else {
         // 根據輸贏狀態計算：贏 = 投資金額 × (1 + 報酬率)，輸 = -投資金額
-        actualReturn = createForm.isWin 
-          ? investAmount * (1 + returnRate) 
+        actualReturn = createForm.isWin
+          ? investAmount * (1 + returnRate)
           : -investAmount;
       }
 
@@ -306,9 +306,9 @@ export const UserDetailPage = () => {
       if (createForm.status === 'SETTLED') {
         // 使用入場價作為出場價（新增訂單時沒有單獨的出場價欄位）
         const exitPrice = parseFloat(createForm.entryPrice);
-        
+
         const result: 'WIN' | 'LOSE' = actualReturn > 0 ? 'WIN' : 'LOSE';
-        
+
         await transactionService.forceSettle(api, newTransaction.orderNumber, {
           exitPrice,
           result,
@@ -326,7 +326,7 @@ export const UserDetailPage = () => {
           limit: 200,
           userId
         });
-        
+
         console.log('重新載入交易列表，完整響應:', response);
         const items = Array.isArray(response?.data) ? response.data : [];
         console.log('交易列表項目數:', items.length);
@@ -378,19 +378,19 @@ export const UserDetailPage = () => {
 
     const duration = parseInt(editForm.duration, 10) || 30;
     const entryTimeIso = new Date(editForm.entryTime).toISOString();
-    
+
     // 計算實際收益：根據輸贏狀態和投資金額計算
     const investAmount = parseInt(editForm.investAmount, 10) || 0;
     const returnRate = calculateReturnRate(duration) / 100; // 轉換為小數（如 0.05 表示 5%）
-    
+
     // 如果用戶手動輸入了實際收益，使用輸入值；否則根據輸贏狀態計算
     let actualReturn = 0;
     if (editForm.actualReturn !== '' && editForm.actualReturn !== '0') {
       actualReturn = parseFloat(editForm.actualReturn) || 0;
     } else {
       // 根據輸贏狀態計算：贏 = 投資金額 × (1 + 報酬率)，輸 = -投資金額
-      actualReturn = editForm.isWin 
-        ? investAmount * (1 + returnRate) 
+      actualReturn = editForm.isWin
+        ? investAmount * (1 + returnRate)
         : -investAmount;
     }
 
@@ -398,13 +398,13 @@ export const UserDetailPage = () => {
       // 如果狀態改為「已結算」，使用強制結算接口
       if (editForm.status === 'SETTLED') {
         // 計算出場價：如果沒有手動輸入，使用入場價
-        const exitPrice = editForm.exitPrice 
-          ? parseFloat(editForm.exitPrice) 
+        const exitPrice = editForm.exitPrice
+          ? parseFloat(editForm.exitPrice)
           : parseFloat(editForm.entryPrice);
-        
+
         // 根據實際收益判斷輸贏結果
         const result: 'WIN' | 'LOSE' = actualReturn > 0 ? 'WIN' : 'LOSE';
-        
+
         await transactionService.forceSettle(api, transactionToEdit.orderNumber, {
           exitPrice,
           result,
@@ -547,9 +547,9 @@ export const UserDetailPage = () => {
           <div className="text-right">
             {price !== null
               ? `$${price.toLocaleString('en-US', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
-                })}`
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}`
               : '-'}
           </div>
         );
@@ -764,8 +764,8 @@ export const UserDetailPage = () => {
               {transactionsLoading
                 ? '交易資料載入中…'
                 : transactionsError
-                ? `載入交易資料失敗：${transactionsError}`
-                : `共 ${transactions.length} 筆記錄，可點擊右側按鈕編輯`}
+                  ? `載入交易資料失敗：${transactionsError}`
+                  : `共 ${transactions.length} 筆記錄，可點擊右側按鈕編輯`}
             </CardDescription>
           </div>
           <div className="flex gap-2">
@@ -976,11 +976,11 @@ export const UserDetailPage = () => {
                         // 當切換輸贏狀態時，自動計算實際收益
                         const investAmount = parseInt(editForm.investAmount, 10) || 0;
                         const returnRate = calculateReturnRate(parseInt(editForm.duration, 10) || 30) / 100;
-                        const newActualReturn = checked 
-                          ? investAmount * (1 + returnRate) 
+                        const newActualReturn = checked
+                          ? investAmount * (1 + returnRate)
                           : -investAmount;
-                        setEditForm(prev => ({ 
-                          ...prev, 
+                        setEditForm(prev => ({
+                          ...prev,
                           isWin: checked,
                           actualReturn: newActualReturn.toFixed(2)
                         }));
@@ -1002,8 +1002,8 @@ export const UserDetailPage = () => {
                       const value = event.target.value;
                       const numValue = parseFloat(value) || 0;
                       // 當手動輸入實際收益時，自動判斷輸贏狀態
-                      setEditForm(prev => ({ 
-                        ...prev, 
+                      setEditForm(prev => ({
+                        ...prev,
                         actualReturn: value,
                         isWin: numValue > 0
                       }));
@@ -1093,10 +1093,10 @@ export const UserDetailPage = () => {
                   <div className="rounded-md border bg-muted px-3 py-2 text-sm">
                     {editForm.entryTime && editForm.duration
                       ? formatTaiwanDateTime(
-                          new Date(
-                            new Date(editForm.entryTime).getTime() + parseInt(editForm.duration, 10) * 1000
-                          ).toISOString()
-                        )
+                        new Date(
+                          new Date(editForm.entryTime).getTime() + parseInt(editForm.duration, 10) * 1000
+                        ).toISOString()
+                      )
                       : '-'}
                   </div>
                 </div>
@@ -1226,11 +1226,11 @@ export const UserDetailPage = () => {
                       // 當切換輸贏狀態時，自動計算實際收益
                       const investAmount = parseInt(createForm.investAmount, 10) || 0;
                       const returnRate = calculateReturnRate(parseInt(createForm.duration, 10) || 30) / 100;
-                      const newActualReturn = checked 
-                        ? investAmount * (1 + returnRate) 
+                      const newActualReturn = checked
+                        ? investAmount * (1 + returnRate)
                         : -investAmount;
-                      setCreateForm(prev => ({ 
-                        ...prev, 
+                      setCreateForm(prev => ({
+                        ...prev,
                         isWin: checked,
                         actualReturn: newActualReturn.toFixed(2)
                       }));
@@ -1291,10 +1291,10 @@ export const UserDetailPage = () => {
                 <div className="rounded-md border bg-muted px-3 py-2 text-sm">
                   {createForm.entryTime && createForm.duration
                     ? formatTaiwanDateTime(
-                        new Date(
-                          new Date(createForm.entryTime).getTime() + parseInt(createForm.duration, 10) * 1000
-                        ).toISOString()
-                      )
+                      new Date(
+                        new Date(createForm.entryTime).getTime() + parseInt(createForm.duration, 10) * 1000
+                      ).toISOString()
+                    )
                     : '-'}
                 </div>
               </div>
@@ -1311,8 +1311,8 @@ export const UserDetailPage = () => {
                   const value = event.target.value;
                   const numValue = parseFloat(value) || 0;
                   // 當手動輸入實際收益時，自動判斷輸贏狀態
-                  setCreateForm(prev => ({ 
-                    ...prev, 
+                  setCreateForm(prev => ({
+                    ...prev,
                     actualReturn: value,
                     isWin: numValue > 0
                   }));
