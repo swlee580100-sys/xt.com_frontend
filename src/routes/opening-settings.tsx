@@ -76,7 +76,20 @@ export function OpeningSettingsPage() {
   const tradingSocketRef = useRef<TradeUpdatesSocket | null>(null);
   const [hideOrderNumber, setHideOrderNumber] = useState(true);
   const [quickUpdatingIds, setQuickUpdatingIds] = useState<Set<string>>(new Set());
-  const [desiredOutcomes, setDesiredOutcomes] = useState<Record<string, 'WIN' | 'LOSE'>>({});
+  // 從 localStorage 恢復 desiredOutcomes
+  const loadDesiredOutcomesFromStorage = useCallback(() => {
+    try {
+      const stored = localStorage.getItem('opening-settings-desired-outcomes');
+      if (stored) {
+        return JSON.parse(stored) as Record<string, 'WIN' | 'LOSE'>;
+      }
+    } catch (error) {
+      console.error('Failed to load desiredOutcomes from localStorage:', error);
+    }
+    return {};
+  }, []);
+
+  const [desiredOutcomes, setDesiredOutcomes] = useState<Record<string, 'WIN' | 'LOSE'>>(() => loadDesiredOutcomesFromStorage());
   const [recentFinished, setRecentFinished] = useState<Transaction[]>([]);
   const [outcomeControl, setOutcomeControl] = useState<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE'>('INDIVIDUAL');
   const activeRealTradesRef = useRef<Transaction[]>([]);
@@ -98,8 +111,26 @@ export function OpeningSettingsPage() {
     MarketSessionStatus.CANCELED
   ]);
   const filterActiveTrades = useCallback(
-    (trades: Transaction[]) =>
-      trades.filter(trade => trade.accountType === 'REAL' && trade.status === 'PENDING'),
+    (trades: Transaction[]) => {
+      const now = Date.now();
+      return trades.filter(trade => {
+        // 必須是真實交易
+        if (trade.accountType !== 'REAL') return false;
+        
+        // 檢查倒數是否結束
+        const expiryTime = new Date(trade.expiryTime).getTime();
+        const isExpired = expiryTime <= now;
+        
+        // 如果倒數還沒結束，即使狀態是 SETTLED，也應該保留在進行中列表
+        // 這樣可以確保在倒數結束前，用戶仍然可以控制輸贏
+        if (!isExpired) {
+          return true; // 倒數未結束，保留在進行中
+        }
+        
+        // 倒數已結束，只保留 PENDING 狀態的（理論上不應該有，但為了安全）
+        return trade.status === 'PENDING';
+      });
+    },
     []
   );
 
@@ -109,6 +140,12 @@ export function OpeningSettingsPage() {
 
   useEffect(() => {
     desiredOutcomesRef.current = desiredOutcomes;
+    // 保存到 localStorage
+    try {
+      localStorage.setItem('opening-settings-desired-outcomes', JSON.stringify(desiredOutcomes));
+    } catch (error) {
+      console.error('Failed to save desiredOutcomes to localStorage:', error);
+    }
   }, [desiredOutcomes]);
 
   useEffect(() => {
@@ -436,9 +473,18 @@ export function OpeningSettingsPage() {
       if (statusFilter === 'ACTIVE') {
         const allPending: Transaction[] = [];
         const allSettled: Transaction[] = [];
+        const now = Date.now();
+        
         for (const transactions of Object.values(sessionTransactionsMap)) {
           allPending.push(...transactions.pending);
-          allSettled.push(...transactions.settled);
+          // 只將倒數已結束的 SETTLED 訂單添加到 finishedTrades
+          for (const t of transactions.settled) {
+            const expiryTime = new Date(t.expiryTime).getTime();
+            const isExpired = expiryTime <= now;
+            if (isExpired) {
+              allSettled.push(t);
+            }
+          }
         }
         // 合併到現有列表中，避免覆蓋 Socket 實時更新的數據
         if (isMountedRef.current) {
@@ -458,10 +504,17 @@ export function OpeningSettingsPage() {
           });
         }
       } else if (statusFilter === 'CLOSED') {
-        // 在「已閉盤」tab下，只更新已結束的交易
+        // 在「已閉盤」tab下，只更新已結束的交易（倒數已結束的）
         const allSettled: Transaction[] = [];
+        const now = Date.now();
         for (const transactions of Object.values(sessionTransactionsMap)) {
-          allSettled.push(...transactions.settled);
+          for (const t of transactions.settled) {
+            const expiryTime = new Date(t.expiryTime).getTime();
+            const isExpired = expiryTime <= now;
+            if (isExpired) {
+              allSettled.push(t);
+            }
+          }
         }
         if (isMountedRef.current) {
           setRecentFinished(allSettled);
@@ -489,18 +542,36 @@ export function OpeningSettingsPage() {
       if (!options?.silent && isMountedRef.current) {
         setIsTradeLoading(true);
       }
+      // 不限制 status，獲取所有真實交易，然後在前端過濾
+      // 這樣可以確保倒數未結束的 SETTLED 訂單也能被獲取到
       const response = await transactionService.list(api, {
         page: 1,
         limit: 100,
-        status: 'PENDING',
         accountType: 'REAL'
+        // 不指定 status，獲取所有狀態的訂單
       });
       
       // 檢查組件是否仍掛載
       if (!isMountedRef.current) return;
       
+      // 使用 filterActiveTrades 過濾，它會檢查倒數時間，而不僅僅是狀態
       const list = filterActiveTrades(response.data || []);
       setActiveRealTrades(list);
+      
+      // 從 localStorage 恢復 desiredOutcomes，確保切換 tab 後能正確顯示 switch 狀態
+      const storedOutcomes = loadDesiredOutcomesFromStorage();
+      if (Object.keys(storedOutcomes).length > 0) {
+        // 只恢復當前列表中存在的訂單的期望結果
+        const restoredOutcomes: Record<string, 'WIN' | 'LOSE'> = {};
+        for (const trade of list) {
+          if (storedOutcomes[trade.id]) {
+            restoredOutcomes[trade.id] = storedOutcomes[trade.id];
+          }
+        }
+        if (Object.keys(restoredOutcomes).length > 0) {
+          setDesiredOutcomes(prev => ({ ...prev, ...restoredOutcomes }));
+        }
+      }
       
       // 依據當前全局控制，為尚未設定期望值的新訂單套預設
       if (isMountedRef.current && outcomeControlRef.current !== 'INDIVIDUAL') {
@@ -581,22 +652,34 @@ export function OpeningSettingsPage() {
         return new Date(t.expiryTime).getTime() - now <= 0;
       });
       
-      // 在倒數結束時，調用 API 結算訂單
-      for (const trade of justFinished) {
-        if (!isMountedRef.current) break;
-        if (quickUpdatingIdsRef.current.has(trade.id)) continue;
-        if (isMountedRef.current) {
-          setQuickUpdatingIds(prev => new Set(prev).add(trade.id));
-        }
-        const outcome = desiredOutcomesRef.current[trade.id] || 'LOSE';
-        const exit = computeExitPrice(trade, outcome);
-        (async () => {
-          try {
-            if (!isMountedRef.current) return;
-            await transactionService.forceSettle(api, trade.orderNumber, {
-              exitPrice: exit,
-              result: outcome
-            });
+        // 在倒數結束時，調用 API 結算訂單
+        for (const trade of justFinished) {
+          if (!isMountedRef.current) break;
+          if (quickUpdatingIdsRef.current.has(trade.id)) continue;
+          if (isMountedRef.current) {
+            setQuickUpdatingIds(prev => new Set(prev).add(trade.id));
+          }
+          const outcome = desiredOutcomesRef.current[trade.id] || 'LOSE';
+          const exit = computeExitPrice(trade, outcome);
+          (async () => {
+            try {
+              if (!isMountedRef.current) return;
+              await transactionService.forceSettle(api, trade.orderNumber, {
+                exitPrice: exit,
+                result: outcome
+              });
+              
+              // 結算完成後，從 localStorage 中移除該訂單的期望結果
+              try {
+                const stored = localStorage.getItem('opening-settings-desired-outcomes');
+                if (stored) {
+                  const outcomes = JSON.parse(stored) as Record<string, 'WIN' | 'LOSE'>;
+                  delete outcomes[trade.id];
+                  localStorage.setItem('opening-settings-desired-outcomes', JSON.stringify(outcomes));
+                }
+              } catch (error) {
+                console.error('Failed to clean desiredOutcomes from localStorage:', error);
+              }
             // 結算成功後，更新本地狀態
             if (isMountedRef.current) {
               setRecentFinished(prev => {
@@ -1532,10 +1615,16 @@ const ActiveRealTradesSection = memo(
 
     const filteredTrades =
       durationFilter === 'FINISHED'
-        ? [...finishedTrades].sort(
-            (a, b) =>
-              new Date(b.expiryTime).getTime() - new Date(a.expiryTime).getTime()
-          )
+        ? [...finishedTrades]
+            .filter(trade => {
+              // 只顯示倒數已結束的訂單
+              const remain = getRemainingSeconds(trade.expiryTime);
+              return remain <= 0;
+            })
+            .sort(
+              (a, b) =>
+                new Date(b.expiryTime).getTime() - new Date(a.expiryTime).getTime()
+            )
         : trades.filter(trade => {
             const remain = getRemainingSeconds(trade.expiryTime);
             const dur = getDurationSeconds(trade.entryTime, trade.expiryTime);
@@ -1769,44 +1858,60 @@ const ActiveRealTradesSection = memo(
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      {durationFilter === 'FINISHED' || trade.status === 'SETTLED' || trade.status === 'CANCELED' ? (
-                        <div
-                          className={cn(
-                            'font-medium',
-                            (() => {
-                              if (typeof trade.actualReturn !== 'number') return 'text-muted-foreground';
-                              // 如果 actualReturn 是 0，但 investAmount > 0，視為虧損
-                              if (trade.actualReturn === 0 && trade.investAmount > 0) {
-                                return 'text-red-600';
-                              }
-                              return trade.actualReturn >= 0 ? 'text-green-600' : 'text-red-600';
-                            })()
-                          )}
-                        >
-                          {(() => {
-                            if (typeof trade.actualReturn !== 'number') return '-';
-                            // 如果 actualReturn 是 0，但 investAmount > 0，顯示為虧損
-                            if (trade.actualReturn === 0 && trade.investAmount > 0) {
-                              return `-$${trade.investAmount.toFixed(2)}`;
-                            }
-                            return `${trade.actualReturn >= 0 ? '+' : '-'}$${Math.abs(trade.actualReturn).toFixed(2)}`;
-                          })()}
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="text-xs text-muted-foreground">輸</span>
-                          <Switch
-                            disabled={quickUpdatingIds.has(trade.id) || !trade.marketSessionId}
-                            checked={(desiredOutcomes[trade.id] || 'LOSE') === 'WIN'}
-                            onCheckedChange={(checked) => {
-                              setOutcomeControl('INDIVIDUAL');
-                              onSwitchChange(trade, checked);
-                            }}
-                            aria-label="切換輸贏"
-                          />
-                          <span className="text-xs text-muted-foreground">贏</span>
-                        </div>
-                      )}
+                      {(() => {
+                        // 檢查倒數是否結束
+                        const remain = getRemainingSeconds(trade.expiryTime);
+                        const isExpired = remain <= 0;
+                        
+                        // 如果倒數已結束，或者是在「已結束」tab，或者狀態是 CANCELED，顯示數字
+                        // 如果倒數還沒結束，即使狀態是 SETTLED，也應該顯示 switch
+                        const shouldShowNumber = durationFilter === 'FINISHED' || 
+                                                isExpired || 
+                                                trade.status === 'CANCELED';
+                        
+                        if (shouldShowNumber) {
+                          return (
+                            <div
+                              className={cn(
+                                'font-medium',
+                                (() => {
+                                  if (typeof trade.actualReturn !== 'number') return 'text-muted-foreground';
+                                  // 如果 actualReturn 是 0，但 investAmount > 0，視為虧損
+                                  if (trade.actualReturn === 0 && trade.investAmount > 0) {
+                                    return 'text-red-600';
+                                  }
+                                  return trade.actualReturn >= 0 ? 'text-green-600' : 'text-red-600';
+                                })()
+                              )}
+                            >
+                              {(() => {
+                                if (typeof trade.actualReturn !== 'number') return '-';
+                                // 如果 actualReturn 是 0，但 investAmount > 0，顯示為虧損
+                                if (trade.actualReturn === 0 && trade.investAmount > 0) {
+                                  return `-$${trade.investAmount.toFixed(2)}`;
+                                }
+                                return `${trade.actualReturn >= 0 ? '+' : '-'}$${Math.abs(trade.actualReturn).toFixed(2)}`;
+                              })()}
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-xs text-muted-foreground">輸</span>
+                            <Switch
+                              disabled={quickUpdatingIds.has(trade.id) || !trade.marketSessionId}
+                              checked={(desiredOutcomes[trade.id] || 'LOSE') === 'WIN'}
+                              onCheckedChange={(checked) => {
+                                setOutcomeControl('INDIVIDUAL');
+                                onSwitchChange(trade, checked);
+                              }}
+                              aria-label="切換輸贏"
+                            />
+                            <span className="text-xs text-muted-foreground">贏</span>
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))}
