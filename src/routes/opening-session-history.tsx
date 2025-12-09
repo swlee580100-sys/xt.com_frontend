@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw, ShoppingBag, TrendingUp, TrendingDown } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
@@ -104,6 +104,37 @@ export function OpeningSessionHistoryPage() {
     return transactions.filter(txn => txn.orderNumber.toLowerCase().includes(keyword));
   }, [transactions, orderSearch]);
 
+  const summaryStats = useMemo(() => {
+    let totalOrders = 0;
+    let totalPlayerWins = 0;
+    let totalPlayerWinAmount = 0;
+    let totalPlayerLosses = 0;
+    let totalPlayerLossAmount = 0;
+
+    filteredTransactions.forEach(trade => {
+      totalOrders++;
+      if (trade.status === 'SETTLED') {
+        const actualReturn = trade.actualReturn || 0;
+        // actualReturn 本身就是盈虧值（已扣除本金的淨利潤/虧損），不需要再減去 investAmount
+        if (actualReturn > 0) {
+          totalPlayerWins++;
+          totalPlayerWinAmount += actualReturn;
+        } else if (actualReturn < 0) {
+          totalPlayerLosses++;
+          totalPlayerLossAmount += Math.abs(actualReturn);
+        }
+      }
+    });
+
+    return {
+      totalOrders,
+      totalPlayerWins,
+      totalPlayerWinAmount,
+      totalPlayerLosses,
+      totalPlayerLossAmount,
+    };
+  }, [filteredTransactions]);
+
   const formatDateTime = (value?: string | null) => {
     if (!value) return '-';
     return new Date(value).toLocaleString('zh-TW', {
@@ -183,6 +214,39 @@ export function OpeningSessionHistoryPage() {
         </CardContent>
       </Card>
 
+      {/* Summary Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">總訂單數</CardTitle>
+            <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summaryStats.totalOrders} 筆</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">玩家盈利</CardTitle>
+            <TrendingUp className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">+{summaryStats.totalPlayerWinAmount.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">{summaryStats.totalPlayerWins} 筆</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">玩家虧損</CardTitle>
+            <TrendingDown className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">-{summaryStats.totalPlayerLossAmount.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">{summaryStats.totalPlayerLosses} 筆</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2 flex-wrap">
@@ -247,29 +311,44 @@ export function OpeningSessionHistoryPage() {
                     <TableHead>入場時間</TableHead>
                     <TableHead>到期時間</TableHead>
                     <TableHead>狀態</TableHead>
+                    <TableHead className="text-right">盈虧</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredTransactions.map(trade => (
-                    <TableRow key={trade.id}>
-                      <TableCell className="font-mono text-sm">{trade.orderNumber}</TableCell>
-                      <TableCell>{trade.userName || '-'}</TableCell>
-                      <TableCell className="min-w-[120px]">{trade.assetType}</TableCell>
-                      <TableCell>{trade.direction}</TableCell>
-                      <TableCell>
-                        ${typeof trade.investAmount === 'number'
-                          ? trade.investAmount.toFixed(2)
-                          : Number(trade.investAmount || 0).toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-sm">{formatDateTime(trade.entryTime)}</TableCell>
-                      <TableCell className="text-sm">{formatDateTime(trade.expiryTime)}</TableCell>
-                      <TableCell>
-                        <Badge variant={trade.status === 'PENDING' ? 'default' : trade.status === 'SETTLED' ? 'outline' : 'destructive'}>
-                          {trade.status === 'PENDING' ? '進行中' : trade.status === 'SETTLED' ? '已結束' : '已取消'}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredTransactions.map(trade => {
+                    const investAmount = typeof trade.investAmount === 'number' ? trade.investAmount : Number(trade.investAmount || 0);
+                    const actualReturn = trade.actualReturn || 0;
+                    // actualReturn 本身就是盈虧值（已扣除本金的淨利潤/虧損），不需要再減去 investAmount
+                    const profitLoss = trade.status === 'SETTLED' ? actualReturn : null;
+                    return (
+                      <TableRow key={trade.id}>
+                        <TableCell className="font-mono text-sm">{trade.orderNumber}</TableCell>
+                        <TableCell>{trade.userName || '-'}</TableCell>
+                        <TableCell className="min-w-[120px]">{trade.assetType}</TableCell>
+                        <TableCell>{trade.direction}</TableCell>
+                        <TableCell>
+                          ${investAmount.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-sm">{formatDateTime(trade.entryTime)}</TableCell>
+                        <TableCell className="text-sm">{formatDateTime(trade.expiryTime)}</TableCell>
+                        <TableCell>
+                          <Badge variant={trade.status === 'PENDING' ? 'default' : trade.status === 'SETTLED' ? 'outline' : 'destructive'}>
+                            {trade.status === 'PENDING' ? '進行中' : trade.status === 'SETTLED' ? '已結束' : '已取消'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {profitLoss !== null ? (
+                            <span className={profitLoss > 0 ? 'text-green-600' : 'text-red-600'}>
+                              {profitLoss > 0 ? '+' : ''}
+                              ${profitLoss.toFixed(2)}
+                            </span>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

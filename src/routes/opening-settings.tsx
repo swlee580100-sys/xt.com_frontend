@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, useEffect, memo, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useNavigate } from '@tanstack/react-router';
 import { Plus, Play, Square, Trash2, Edit, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,9 +25,9 @@ import { transactionService } from '@/services/transactions';
 import TradeUpdatesSocket from '@/services/trade-updates';
 import type {
   MarketSession,
-  MarketSessionStatus,
   GetMarketSessionsParams
 } from '@/types/market-session';
+import { MarketSessionStatus } from '@/types/market-session';
 import type { Transaction } from '@/types/transaction';
 import { EditMarketSessionDialog } from '@/components/market-sessions/edit-market-session-dialog';
 import { cn } from '@/lib/utils';
@@ -75,33 +76,27 @@ export function OpeningSettingsPage() {
   const tradingSocketRef = useRef<TradeUpdatesSocket | null>(null);
   const [hideOrderNumber, setHideOrderNumber] = useState(true);
   const [quickUpdatingIds, setQuickUpdatingIds] = useState<Set<string>>(new Set());
-  const [globalOutcomeControl, setGlobalOutcomeControl] =
-    useState<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM'>('INDIVIDUAL');
-  const [confirmGlobalOpen, setConfirmGlobalOpen] = useState(false);
-  const [pendingGlobalMode, setPendingGlobalMode] =
-    useState<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' | null>(null);
   const [desiredOutcomes, setDesiredOutcomes] = useState<Record<string, 'WIN' | 'LOSE'>>({});
   const [recentFinished, setRecentFinished] = useState<Transaction[]>([]);
+  const [outcomeControl, setOutcomeControl] = useState<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE'>('INDIVIDUAL');
   const activeRealTradesRef = useRef<Transaction[]>([]);
   const desiredOutcomesRef = useRef<Record<string, 'WIN' | 'LOSE'>>({});
   const quickUpdatingIdsRef = useRef<Set<string>>(new Set());
+  const outcomeControlRef = useRef<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE'>('INDIVIDUAL');
   // 組件掛載狀態追蹤，防止卸載後更新狀態
   const isMountedRef = useRef(true);
+  // 用於存儲最新的 statusFilter 和 currentPage，確保異步操作時能獲取到最新值
+  const statusFilterRef = useRef<'PENDING' | 'ACTIVE' | 'CLOSED'>(statusFilter);
+  const currentPageRef = useRef<number>(currentPage);
   // 後端訂單統計（若接口可用）：sessionId -> { pendingCount, settledCount }
   const [orderStats, setOrderStats] = useState<Record<string, { pendingCount: number; settledCount: number }>>({});
 
-  const mapResultToControl = useCallback(
-    (result?: any): 'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' => {
-      if (result === 'WIN') return 'ALL_WIN';
-      if (result === 'LOSE') return 'ALL_LOSE';
-      return 'INDIVIDUAL';
-    },
-    []
-  );
-  // 僅在首次進入頁面時同步一次全局輸贏控制
-  const hasSyncedGlobalOnceRef = useRef(false);
-
-  const allowedStatuses = new Set<MarketSessionStatus>(['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELED']);
+  const allowedStatuses = new Set<MarketSessionStatus>([
+    MarketSessionStatus.PENDING,
+    MarketSessionStatus.ACTIVE,
+    MarketSessionStatus.COMPLETED,
+    MarketSessionStatus.CANCELED
+  ]);
   const filterActiveTrades = useCallback(
     (trades: Transaction[]) =>
       trades.filter(trade => trade.accountType === 'REAL' && trade.status === 'PENDING'),
@@ -117,6 +112,66 @@ export function OpeningSettingsPage() {
   }, [desiredOutcomes]);
 
   useEffect(() => {
+    outcomeControlRef.current = outcomeControl;
+  }, [outcomeControl]);
+
+  // 監聽新訂單，自動應用全局設定
+  useEffect(() => {
+    if (outcomeControl === 'INDIVIDUAL' || !api || !isMountedRef.current) return;
+    
+    const currentTrades = activeRealTrades;
+    const outcome: 'WIN' | 'LOSE' = outcomeControl === 'ALL_WIN' ? 'WIN' : 'LOSE';
+    
+    // 找出還沒有設置 outcome 的新訂單（使用 ref 來檢查，避免無限循環）
+    const newTrades = currentTrades.filter(trade => 
+      trade.accountType === 'REAL' &&
+      trade.marketSessionId &&
+      !desiredOutcomesRef.current[trade.id] &&
+      new Date(trade.expiryTime).getTime() > Date.now()
+    );
+    
+    if (newTrades.length > 0) {
+      console.log('[useEffect] 發現新訂單需要應用全局設定:', {
+        outcomeControl,
+        newTradesCount: newTrades.length,
+        trades: newTrades.map(t => ({ id: t.id, orderNumber: t.orderNumber }))
+      });
+      
+      // 更新本地狀態
+      setDesiredOutcomes(prev => {
+        const next = { ...prev };
+        for (const trade of newTrades) {
+          next[trade.id] = outcome;
+        }
+        console.log('[useEffect] 更新 desiredOutcomes:', next);
+        return next;
+      });
+      
+      // 批量調用 API
+      Promise.all(
+        newTrades.map(async (trade) => {
+          try {
+            await transactionService.forceSettle(api, trade.orderNumber, {
+              result: outcome
+            });
+            console.log('[useEffect] 成功應用全局設定:', trade.orderNumber);
+          } catch (error) {
+            console.error(`[useEffect] Failed to auto-set outcome for trade ${trade.orderNumber}:`, error);
+            // 如果失敗，移除本地狀態
+            setDesiredOutcomes(prev => {
+              const next = { ...prev };
+              delete next[trade.id];
+              return next;
+            });
+          }
+        })
+      ).catch(err => {
+        console.error('[useEffect] Failed to auto-set outcomes for new trades:', err);
+      });
+    }
+  }, [activeRealTrades, outcomeControl, api]);
+
+  useEffect(() => {
     quickUpdatingIdsRef.current = quickUpdatingIds;
   }, [quickUpdatingIds]);
 
@@ -128,6 +183,15 @@ export function OpeningSettingsPage() {
     };
   }, []);
 
+  // 更新 ref 以保持最新值
+  useEffect(() => {
+    statusFilterRef.current = statusFilter;
+  }, [statusFilter]);
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+
   // 獲取大盤列表
   const fetchSessions = useCallback(async () => {
     if (!api || !isMountedRef.current) return;
@@ -136,41 +200,116 @@ export function OpeningSettingsPage() {
       if (isMountedRef.current) {
         setIsLoading(true);
       }
-      const params: GetMarketSessionsParams = { page: currentPage, limit: 20 };
-      // 伺服器僅支援 PENDING/ACTIVE/COMPLETED/CANCELED 四種狀態；「已閉盤」改由前端合併 COMPLETED + CANCELED
-      if (statusFilter === 'PENDING' || statusFilter === 'ACTIVE') {
-        params.status = statusFilter as unknown as MarketSessionStatus;
-      }
-
-      const response = await marketSessionService.admin.getSessions(api, params);
+      // 使用 ref 中的最新值，確保異步操作時能獲取到正確的狀態
+      const currentStatusFilter = statusFilterRef.current;
+      const currentPageValue = currentPageRef.current;
       
-      // 檢查組件是否仍掛載
-      if (!isMountedRef.current) return;
-      
-      const all = (response.marketSessions || []).filter(session => allowedStatuses.has(session.status));
-      setAllSessions(all);
-      const filtered =
-        statusFilter === 'ACTIVE'
-          ? all.filter(s => s.status === 'ACTIVE')
-          : statusFilter === 'PENDING'
-          ? all.filter(s => s.status === 'PENDING')
-          : all.filter(s => s.status === 'COMPLETED' || s.status === 'CANCELED');
-      setSessions(filtered);
-      // 僅在首次進入頁面時，依當前進行中的大盤「預設輸贏結果」同步一次全局輸贏控制
-      if (!hasSyncedGlobalOnceRef.current) {
-        const active = all.find(s => s.status === 'ACTIVE');
-        if (active?.initialResult && isMountedRef.current) {
-          setGlobalOutcomeControl(mapResultToControl(active.initialResult));
+      // 對於「已閉盤」頁籤，分別獲取 COMPLETED 和 CANCELED 的所有頁面資料
+      if (currentStatusFilter === 'CLOSED') {
+        const allClosedSessions: MarketSession[] = [];
+        const pageLimit = 100; // 每頁獲取 100 筆
+        
+        // 獲取所有 COMPLETED 的資料
+        let completedPage = 1;
+        let hasMoreCompleted = true;
+        while (hasMoreCompleted) {
+          const completedResponse = await marketSessionService.admin.getSessions(api, {
+            status: MarketSessionStatus.COMPLETED,
+            page: completedPage,
+            limit: pageLimit
+          });
+          
+          if (!isMountedRef.current) return;
+          
+          const completed = completedResponse.marketSessions || [];
+          allClosedSessions.push(...completed);
+          
+          const totalPages = completedResponse.totalPages || 1;
+          hasMoreCompleted = completedPage < totalPages && completed.length > 0;
+          completedPage++;
+          
+          if (completedPage > 1000) break;
         }
-        hasSyncedGlobalOnceRef.current = true;
-      }
-      if (isMountedRef.current) {
-        setPagination({
-          page: response.page,
-          pageSize: response.pageSize,
-          total: filtered.length,
-          totalPages: response.totalPages
+        
+        // 獲取所有 CANCELED 的資料
+        let canceledPage = 1;
+        let hasMoreCanceled = true;
+        while (hasMoreCanceled) {
+          const canceledResponse = await marketSessionService.admin.getSessions(api, {
+            status: MarketSessionStatus.CANCELED,
+            page: canceledPage,
+            limit: pageLimit
+          });
+          
+          if (!isMountedRef.current) return;
+          
+          const canceled = canceledResponse.marketSessions || [];
+          allClosedSessions.push(...canceled);
+          
+          const totalPages = canceledResponse.totalPages || 1;
+          hasMoreCanceled = canceledPage < totalPages && canceled.length > 0;
+          canceledPage++;
+          
+          if (canceledPage > 1000) break;
+        }
+        
+        if (!isMountedRef.current) return;
+        
+        // 按時間排序（最新的在前）
+        const sorted = allClosedSessions.sort((a, b) => {
+          const timeA = new Date(a.endTime || a.startTime || a.createdAt).getTime();
+          const timeB = new Date(b.endTime || b.startTime || b.createdAt).getTime();
+          return timeB - timeA;
         });
+        
+        setAllSessions(sorted);
+        
+        // 前端分頁
+        const pageSize = 20;
+        const startIndex = (currentPageValue - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const paginated = sorted.slice(startIndex, endIndex);
+        
+        setSessions(paginated);
+        if (isMountedRef.current) {
+          setPagination({
+            page: currentPageValue,
+            pageSize: pageSize,
+            total: sorted.length,
+            totalPages: Math.ceil(sorted.length / pageSize)
+          });
+        }
+      } else {
+        // 對於「待開盤」和「進行中」頁籤，使用原來的邏輯
+        const params: GetMarketSessionsParams = { page: currentPageValue, limit: 20 };
+        if (currentStatusFilter === 'PENDING' || currentStatusFilter === 'ACTIVE') {
+          params.status = currentStatusFilter as unknown as MarketSessionStatus;
+        }
+
+        const response = await marketSessionService.admin.getSessions(api, params);
+        
+        // 檢查組件是否仍掛載
+        if (!isMountedRef.current) return;
+        
+        const all = (response.marketSessions || []).filter(session => allowedStatuses.has(session.status));
+        setAllSessions(all);
+        // 使用 ref 中的最新值進行過濾（在異步操作完成後獲取最新狀態）
+        const filterValue = statusFilterRef.current;
+        const filtered =
+          filterValue === 'ACTIVE'
+            ? all.filter(s => s.status === 'ACTIVE').slice(0, 1) // 只顯示第一個進行中的大盤
+            : filterValue === 'PENDING'
+            ? all.filter(s => s.status === 'PENDING')
+            : all.filter(s => s.status === 'COMPLETED' || s.status === 'CANCELED');
+        setSessions(filtered);
+        if (isMountedRef.current) {
+          setPagination({
+            page: response.page,
+            pageSize: response.pageSize,
+            total: filtered.length,
+            totalPages: response.totalPages
+          });
+        }
       }
     } catch (error: any) {
       if (!isMountedRef.current) return;
@@ -186,13 +325,13 @@ export function OpeningSettingsPage() {
         setIsLoading(false);
       }
     }
-  }, [api, currentPage, statusFilter, toast]);
+  }, [api, toast]);
 
   // 獨立取得 ACTIVE 大盤數量，避免因列表篩選造成提示橫幅閃爍
   const fetchActiveCount = useCallback(async () => {
     if (!api) return;
     try {
-      const resp = await marketSessionService.admin.getSessions(api, { status: 'ACTIVE', page: 1, limit: 1 });
+      const resp = await marketSessionService.admin.getSessions(api, { status: MarketSessionStatus.ACTIVE, page: 1, limit: 1 });
       const list = resp.marketSessions || [];
       setActiveCount(list.length);
     } catch (e) {
@@ -200,10 +339,11 @@ export function OpeningSettingsPage() {
     }
   }, [api]);
 
+  // 當 statusFilter、currentPage 或 fetchSessions 改變時，重新獲取數據
   useEffect(() => {
     fetchSessions();
     fetchActiveCount();
-  }, [fetchSessions, fetchActiveCount]);
+  }, [fetchSessions, fetchActiveCount, statusFilter, currentPage]);
 
   // 依本地交易建立「進行中訂單數 / 已結束訂單數」映射（僅做前端估算，當後端 stats 可用時會被覆蓋）
   const getRemainingMs = (expiry?: string | null) =>
@@ -361,23 +501,46 @@ export function OpeningSettingsPage() {
       
       const list = filterActiveTrades(response.data || []);
       setActiveRealTrades(list);
-      // 依據當前全局控制，為尚未設定期望值的新訂單套預設（不覆蓋已設定）
-      if (isMountedRef.current) {
-        const mode = globalOutcomeControl;
-        if (mode !== 'INDIVIDUAL') {
+      
+      // 依據當前全局控制，為尚未設定期望值的新訂單套預設
+      if (isMountedRef.current && outcomeControlRef.current !== 'INDIVIDUAL') {
+        const currentControl = outcomeControlRef.current;
+        const outcome: 'WIN' | 'LOSE' = currentControl === 'ALL_WIN' ? 'WIN' : 'LOSE';
+        const newTrades = list.filter(t => 
+          t.marketSessionId && 
+          !desiredOutcomesRef.current[t.id] &&
+          new Date(t.expiryTime).getTime() > Date.now()
+        );
+        
+        if (newTrades.length > 0 && api) {
+          // 更新本地狀態
           setDesiredOutcomes(prev => {
             const next = { ...prev };
-            const now = Date.now();
-            for (const t of list) {
-              if (next[t.id]) continue;
-              const remain = new Date(t.expiryTime).getTime() - now;
-              if (remain <= 0) continue;
-              next[t.id] =
-                mode === 'ALL_WIN' ? 'WIN' :
-                mode === 'ALL_LOSE' ? 'LOSE' :
-                Math.random() < 0.5 ? 'WIN' : 'LOSE';
+            for (const trade of newTrades) {
+              next[trade.id] = outcome;
             }
             return next;
+          });
+          
+          // 批量調用 API
+          Promise.all(
+            newTrades.map(async (trade) => {
+              try {
+                await transactionService.forceSettle(api, trade.orderNumber, {
+                  result: outcome
+                });
+              } catch (error) {
+                console.error(`Failed to auto-set outcome for trade ${trade.orderNumber}:`, error);
+                // 如果失敗，移除本地狀態
+                setDesiredOutcomes(prev => {
+                  const next = { ...prev };
+                  delete next[trade.id];
+                  return next;
+                });
+              }
+            })
+          ).catch(err => {
+            console.error('Failed to auto-set outcomes for new trades:', err);
           });
         }
       }
@@ -394,13 +557,14 @@ export function OpeningSettingsPage() {
         setIsTradeLoading(false);
       }
     }
-  }, [api, toast, filterActiveTrades, globalOutcomeControl]);
+  }, [api, toast, filterActiveTrades]);
 
   useEffect(() => {
     fetchActiveTrades();
   }, [fetchActiveTrades]);
 
-  // 依賴 WebSocket 並以本地計時器處理倒數結束與自動結算
+  // 監控倒數結束的訂單，在倒數結束時調用 API 結算
+  // 根據 desiredOutcomes 狀態來結算訂單
   useEffect(() => {
     if (!api) return;
     const timer = setInterval(() => {
@@ -410,41 +574,41 @@ export function OpeningSettingsPage() {
       const trades = activeRealTradesRef.current;
       if (!trades || trades.length === 0) return;
       const now = Date.now();
+      // 檢查倒數是否結束，不管後端返回的狀態是什麼
+      // 只要倒數結束，就將訂單從進行中移到已結束
       const justFinished = trades.filter(t => {
-        if (t.status !== 'PENDING') return false;
+        // 不管 status 是什麼，只要倒數結束就處理
         return new Date(t.expiryTime).getTime() - now <= 0;
       });
-      if (justFinished.length > 0 && isMountedRef.current) {
-        setRecentFinished(prev => {
-          const map = new Map(prev.map(x => [x.id, x]));
-          for (const t of justFinished) {
-            map.set(t.id, t);
-          }
-          const merged = Array.from(map.values()).sort(
-            (a, b) => new Date(b.expiryTime).getTime() - new Date(a.expiryTime).getTime()
-          );
-          return merged.slice(0, 200);
-        });
-      }
+      
+      // 在倒數結束時，調用 API 結算訂單
       for (const trade of justFinished) {
         if (!isMountedRef.current) break;
         if (quickUpdatingIdsRef.current.has(trade.id)) continue;
         if (isMountedRef.current) {
           setQuickUpdatingIds(prev => new Set(prev).add(trade.id));
         }
-        const outcome = desiredOutcomesRef.current[trade.id] || 'WIN';
+        const outcome = desiredOutcomesRef.current[trade.id] || 'LOSE';
         const exit = computeExitPrice(trade, outcome);
-        const socket = tradingSocketRef.current;
         (async () => {
           try {
             if (!isMountedRef.current) return;
-            if (socket) {
-              await socket.forceSettle(trade.id, exit);
-            } else {
-              await transactionService.forceSettle(api, trade.orderNumber, {
-                exitPrice: exit,
-                result: outcome
+            await transactionService.forceSettle(api, trade.orderNumber, {
+              exitPrice: exit,
+              result: outcome
+            });
+            // 結算成功後，更新本地狀態
+            if (isMountedRef.current) {
+              setRecentFinished(prev => {
+                const map = new Map(prev.map(x => [x.id, x]));
+                map.set(trade.id, trade);
+                const merged = Array.from(map.values()).sort(
+                  (a, b) => new Date(b.expiryTime).getTime() - new Date(a.expiryTime).getTime()
+                );
+                return merged.slice(0, 200);
               });
+              // 從進行中列表移除
+              setActiveRealTrades(prev => prev.filter(t => t.id !== trade.id));
             }
           } catch (error) {
             if (!isMountedRef.current) return;
@@ -486,39 +650,132 @@ export function OpeningSettingsPage() {
       setIsTradeLoading(false);
     });
 
-    const offNew = socket.on<{ transaction?: Transaction }>('trading:new-transaction', data => {
+    const offNew = socket.on<{ transaction?: Transaction }>('trading:new-transaction', async data => {
       if (!isMountedRef.current) return;
       const trade = data?.transaction;
       if (!trade) return;
-      setActiveRealTrades(prev => filterActiveTrades([trade, ...prev]));
-      // 全局控制生效時，新加入訂單自動套用期望輸贏（不覆蓋已手動設定）
-      if (trade.status === 'PENDING' && trade.accountType === 'REAL') {
-        const mode = globalOutcomeControl;
-        if (mode !== 'INDIVIDUAL') {
-          const remain = new Date(trade.expiryTime).getTime() - Date.now();
-          if (remain > 0 && isMountedRef.current) {
-            setDesiredOutcomes(prev => {
-              if (prev[trade.id]) return prev;
-              return {
-                ...prev,
-                [trade.id]:
-                  mode === 'ALL_WIN' ? 'WIN' :
-                  mode === 'ALL_LOSE' ? 'LOSE' :
-                  Math.random() < 0.5 ? 'WIN' : 'LOSE'
-              };
+      
+      // 檢查是否為新訂單（不在當前列表中）
+      const currentTrades = activeRealTradesRef.current;
+      const isNewTrade = !currentTrades.some(t => t.id === trade.id);
+      
+      console.log('[offNew] 新訂單:', {
+        orderNumber: trade.orderNumber,
+        isNewTrade,
+        accountType: trade.accountType,
+        marketSessionId: trade.marketSessionId,
+        currentControl: outcomeControlRef.current
+      });
+      
+      // 如果是新訂單，且全局控制不是「個別控制」，且有 marketSessionId，則自動應用全局設定
+      if (isNewTrade && trade.accountType === 'REAL' && trade.marketSessionId) {
+        const now = Date.now();
+        const expiryTime = new Date(trade.expiryTime).getTime();
+        const isExpired = expiryTime <= now;
+        
+        if (!isExpired) {
+          const currentControl = outcomeControlRef.current;
+          console.log('[offNew] 檢查全局控制:', {
+            currentControl,
+            willApply: currentControl === 'ALL_WIN' || currentControl === 'ALL_LOSE'
+          });
+          
+          if (currentControl === 'ALL_WIN' || currentControl === 'ALL_LOSE') {
+            const outcome: 'WIN' | 'LOSE' = currentControl === 'ALL_WIN' ? 'WIN' : 'LOSE';
+            
+            console.log('[offNew] 應用全局設定:', {
+              tradeId: trade.id,
+              orderNumber: trade.orderNumber,
+              outcome
             });
+            
+            // 先更新本地狀態，讓 UI 立即反映
+            setDesiredOutcomes(prev => {
+              const next = { ...prev, [trade.id]: outcome };
+              console.log('[offNew] 更新 desiredOutcomes:', next);
+              return next;
+            });
+            
+            // 調用 API 設置輸贏結果（異步執行，不阻塞 UI）
+            if (api) {
+              transactionService.forceSettle(api, trade.orderNumber, {
+                result: outcome
+              }).then(() => {
+                console.log('[offNew] API 調用成功:', trade.orderNumber);
+              }).catch(error => {
+                console.error(`[offNew] Failed to auto-set outcome for new trade ${trade.orderNumber}:`, error);
+                // 如果失敗，移除本地狀態
+                setDesiredOutcomes(prev => {
+                  const next = { ...prev };
+                  delete next[trade.id];
+                  return next;
+                });
+              });
+            }
           }
         }
       }
+      
+      // 更新訂單列表
+      setActiveRealTrades(prev => filterActiveTrades([trade, ...prev]));
     });
 
-    const upsertTrade = (trade?: Transaction) => {
+    const upsertTrade = async (trade?: Transaction) => {
       if (!trade || !isMountedRef.current) return;
+      
+      // 檢查倒數是否結束
+      const now = Date.now();
+      const expiryTime = new Date(trade.expiryTime).getTime();
+      const isExpired = expiryTime <= now;
+      
+      // 檢查是否為新訂單（不在當前列表中）
+      const isNewTrade = !activeRealTradesRef.current.some(t => t.id === trade.id);
+      
+      // 如果是新訂單，且全局控制不是「個別控制」，且有 marketSessionId，則自動應用全局設定
+      if (isNewTrade && trade.accountType === 'REAL' && trade.marketSessionId && !isExpired) {
+        const currentControl = outcomeControlRef.current;
+        if (currentControl === 'ALL_WIN' || currentControl === 'ALL_LOSE') {
+          const outcome: 'WIN' | 'LOSE' = currentControl === 'ALL_WIN' ? 'WIN' : 'LOSE';
+          
+          // 更新本地狀態
+          setDesiredOutcomes(prev => ({ ...prev, [trade.id]: outcome }));
+          
+          // 調用 API 設置輸贏結果
+          if (api) {
+            try {
+              await transactionService.forceSettle(api, trade.orderNumber, {
+                result: outcome
+              });
+            } catch (error) {
+              console.error(`Failed to auto-set outcome for new trade ${trade.orderNumber}:`, error);
+              // 如果失敗，移除本地狀態
+              setDesiredOutcomes(prev => {
+                const next = { ...prev };
+                delete next[trade.id];
+                return next;
+              });
+            }
+          }
+        }
+      }
+      
       setActiveRealTrades(prev => {
         const list = prev.filter(item => item.id !== trade.id);
-        return trade.status === 'PENDING' && trade.accountType === 'REAL'
-          ? filterActiveTrades([trade, ...list])
-          : list;
+        
+        // 如果訂單是 PENDING 狀態，保持在列表中
+        if (trade.status === 'PENDING' && trade.accountType === 'REAL') {
+          return filterActiveTrades([trade, ...list]);
+        }
+        
+        // 即使後端返回 SETTLED，如果倒數還沒結束，也保持在列表中
+        // 使用原始訂單數據，但前端顯示時視為 PENDING
+        if (trade.status === 'SETTLED' && trade.accountType === 'REAL' && !isExpired) {
+          const pendingTrade = { ...trade, status: 'PENDING' as const };
+          return filterActiveTrades([pendingTrade, ...list]);
+        }
+        
+        // 倒數已結束或不是 REAL 類型，從列表中移除
+        return list;
       });
     };
 
@@ -605,7 +862,7 @@ export function OpeningSettingsPage() {
       } else if (api) {
         await transactionService.forceSettle(api, tradeToEdit.orderNumber, {
           exitPrice: parsedExit,
-          result: resultForm.outcome
+          result: resultForm.outcome as 'WIN' | 'LOSE'
         });
       } else {
         throw new Error('目前無法連線交易服務');
@@ -630,22 +887,6 @@ export function OpeningSettingsPage() {
     }
   };
 
-  // 全局輸贏控制（作用於所有倒數中的訂單）
-  const applyGlobalOutcomeControl = async (mode: typeof globalOutcomeControl) => {
-    if (!mode || mode === 'INDIVIDUAL') return;
-    const nowTs = Date.now();
-    const targets = activeRealTrades.filter(t => new Date(t.expiryTime).getTime() - nowTs > 0);
-    setDesiredOutcomes(prev => {
-        const next = { ...prev };
-      for (const t of targets) {
-        next[t.id] =
-          mode === 'ALL_WIN' ? 'WIN' :
-          mode === 'ALL_LOSE' ? 'LOSE' :
-          Math.random() < 0.5 ? 'WIN' : 'LOSE';
-      }
-        return next;
-      });
-  };
 
   // 設定單筆期望輸贏（不立即結算，到期時依設定自動結算）
   const handleQuickSetOutcome = async (trade: Transaction, outcome: 'WIN' | 'LOSE') => {
@@ -654,6 +895,55 @@ export function OpeningSettingsPage() {
       title: '已設定',
       description: `此訂單將在到期時結算為${outcome === 'WIN' ? '贏' : '輸'}`
     });
+  };
+
+  // 處理 Switch 切換，調用 forceSettle API 但只傳遞 result，不傳遞 exitPrice
+  // 即使後端返回 SETTLED 狀態，前端也不更新訂單狀態，保持訂單在進行中列表
+  // 直到倒數結束時才將訂單從進行中移到已結束
+  const handleSwitchChange = async (trade: Transaction, checked: boolean) => {
+    const outcome: 'WIN' | 'LOSE' = checked ? 'WIN' : 'LOSE';
+    
+    // 立即更新本地狀態
+    setDesiredOutcomes(prev => ({ ...prev, [trade.id]: outcome }));
+    
+    // 調用 forceSettle API，但只傳遞 result，不傳遞 exitPrice
+    // 即使後端返回 SETTLED 狀態，我們也不更新 activeRealTrades
+    // 保持訂單在進行中列表，直到倒數結束
+    if (api && trade.marketSessionId) {
+      try {
+        setQuickUpdatingIds(prev => new Set(prev).add(trade.id));
+        await transactionService.forceSettle(api, trade.orderNumber, {
+          result: outcome
+          // 不傳遞 exitPrice，只傳遞 result
+          // 即使後端返回 SETTLED，前端也不更新訂單狀態
+        });
+        // 不更新 activeRealTrades，保持訂單在進行中列表
+        // 即使後端返回 SETTLED 狀態，我們也不移除訂單
+        toast({
+          title: '成功',
+          description: `已設定此訂單為${outcome === 'WIN' ? '贏' : '輸'}，將在倒數結束時自動結算。在倒數結束前可隨時更改。`
+        });
+      } catch (error: any) {
+        console.error('Failed to sync outcome:', error);
+        // 如果 API 調用失敗，恢復本地狀態
+        setDesiredOutcomes(prev => {
+          const next = { ...prev };
+          delete next[trade.id];
+          return next;
+        });
+        toast({
+          title: '錯誤',
+          description: error?.response?.data?.message || error?.message || '同步輸贏狀態失敗',
+          variant: 'destructive'
+        });
+      } finally {
+        setQuickUpdatingIds(prev => {
+          const next = new Set(prev);
+          next.delete(trade.id);
+          return next;
+        });
+      }
+    }
   };
 
   // 開啟大盤
@@ -681,10 +971,6 @@ export function OpeningSettingsPage() {
         title: '成功',
         description: `大盤已開啟，建立了 ${result.subMarketsCreated} 個小盤`
       });
-      // 在「開啟」當下，同步全局輸贏控制為該大盤的預設輸贏結果（不影響歷史）
-      if (result.marketSession?.initialResult) {
-        setGlobalOutcomeControl(mapResultToControl(result.marketSession.initialResult));
-      }
       // 切換到「進行中」分頁並刷新列表
       setStatusFilter('ACTIVE');
       setCurrentPage(1);
@@ -798,32 +1084,6 @@ export function OpeningSettingsPage() {
           <p className="text-muted-foreground mt-2">管理進行中的訂單並控制玩家輸贏</p>
         </div>
         <div className="flex gap-2 items-center">
-          {statusFilter === 'ACTIVE' && activeCount > 0 && (
-            <div className="hidden sm:flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">全局輸贏控制</span>
-              <Select
-                value={globalOutcomeControl}
-                onValueChange={(val: any) => {
-                  if (val === 'INDIVIDUAL') {
-                    setGlobalOutcomeControl('INDIVIDUAL');
-                    return;
-                  }
-                  setPendingGlobalMode(val);
-                  setConfirmGlobalOpen(true);
-                }}
-              >
-                <SelectTrigger className="h-9 w-[150px]">
-                  <SelectValue placeholder="個別控制" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL_LOSE">全輸（全部關閉）</SelectItem>
-                  <SelectItem value="ALL_WIN">全贏（全部開啟）</SelectItem>
-                  <SelectItem value="RANDOM">隨機</SelectItem>
-                  <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
           <Button
             onClick={() => {
               fetchSessions();
@@ -840,6 +1100,17 @@ export function OpeningSettingsPage() {
             <Plus className="w-4 h-4 mr-2" />
             建立大盤
         </Button>
+        </div>
+      </div>
+
+      {/* 交易規則說明 - 黃色提示框 */}
+      <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-800">
+        <div className="font-medium mb-1">交易規則說明：</div>
+        <div>
+          虛擬交易將按照玩家實際結果判斷輸贏，真實交易不論看漲看跌是否正確。預設玩家一定輸，當開啟輸贏控制按鈕，玩家才會盈利
+        </div>
+        <div className="mt-2 font-medium text-yellow-900">
+          注意：如果沒有開啟大盤，無法控制輸贏，玩家必輸
         </div>
       </div>
 
@@ -907,7 +1178,6 @@ export function OpeningSettingsPage() {
                           <>
                             <TableHead>名稱</TableHead>
                             <TableHead>描述</TableHead>
-                            <TableHead className="w-[120px]">預設輸贏</TableHead>
                             <TableHead className="text-right">操作</TableHead>
                           </>
                         ) : statusFilter === 'ACTIVE' ? (
@@ -939,24 +1209,8 @@ export function OpeningSettingsPage() {
                           <TableCell className="text-sm text-muted-foreground">
                             {session.description || '-'}
                             </TableCell>
-                          <TableCell className="w-[120px]">
-                            {session.initialResult === 'WIN'
-                              ? '全贏'
-                              : session.initialResult === 'LOSE'
-                              ? '全輸'
-                              : '個別控制'}
-                            </TableCell>
                           <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  navigate({ to: '/opening-settings/$sessionId', params: { sessionId: session.id } })
-                                }
-                              >
-                                查看訂單
-                                </Button>
                                 <Button
                                   variant="outline"
                                 size="sm"
@@ -1027,18 +1281,17 @@ export function OpeningSettingsPage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              {session.status !== 'ACTIVE' && (
-                          <Button
-                                  variant="outline"
-                            size="sm"
-                                  onClick={() =>
-                                    navigate({ to: '/opening-settings/$sessionId', params: { sessionId: session.id } })
-                                  }
-                          >
-                                  查看訂單
-                          </Button>
-                        )}
-                      </div>
+                              {/* 已閉盤頁籤中，所有 session 都應該顯示「查看訂單」按鈕 */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  navigate({ to: '/opening-settings/$sessionId', params: { sessionId: session.id } })
+                                }
+                              >
+                                查看訂單
+                              </Button>
+                            </div>
                           </TableCell>
                         </>
                       )}
@@ -1093,6 +1346,9 @@ export function OpeningSettingsPage() {
           sessionName={sessions.find(s => s.status === 'ACTIVE')?.name}
           desiredOutcomes={desiredOutcomes}
           setDesiredOutcomes={setDesiredOutcomes}
+          onSwitchChange={handleSwitchChange}
+          outcomeControl={outcomeControl}
+          setOutcomeControl={setOutcomeControl}
         />
       )}
 
@@ -1104,53 +1360,23 @@ export function OpeningSettingsPage() {
         onSuccess={() => {
           setIsEditDialogOpen(false);
           fetchSessions();
+          fetchActiveCount();
+        }}
+        activeCount={activeCount}
+        onSessionStarted={() => {
+          // 立即啟用後切換到「進行中」頁籤
+          // 使用 flushSync 強制同步更新狀態，確保狀態更新完成後再獲取數據
+          flushSync(() => {
+            setStatusFilter('ACTIVE');
+            setCurrentPage(1);
+          });
+          // 狀態已同步更新，現在可以安全地獲取數據
+          fetchSessions();
+          fetchActiveCount();
         }}
       />
 
       {/* 編輯交易結果 */}
-      <Dialog
-        open={confirmGlobalOpen}
-        onOpenChange={(open) => {
-          setConfirmGlobalOpen(open);
-          if (!open) setPendingGlobalMode(null);
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>套用全局輸贏控制</DialogTitle>
-            <DialogDescription>
-              此操作將批次套用到所有仍在倒數中的訂單。是否確認執行？
-            </DialogDescription>
-          </DialogHeader>
-          <div className="text-sm">
-            模式：{pendingGlobalMode === 'ALL_WIN' ? '全贏' : pendingGlobalMode === 'ALL_LOSE' ? '全輸' : pendingGlobalMode === 'RANDOM' ? '隨機' : '個別控制'}
-            </div>
-          <DialogFooter className="sm:justify-end">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setConfirmGlobalOpen(false);
-                setPendingGlobalMode(null);
-                // 回復顯示為個別控制，避免造成誤解
-                setGlobalOutcomeControl('INDIVIDUAL');
-              }}
-            >
-              取消
-            </Button>
-            <Button
-              onClick={async () => {
-                const mode = pendingGlobalMode || 'INDIVIDUAL';
-                setConfirmGlobalOpen(false);
-                setGlobalOutcomeControl(mode as any);
-                await applyGlobalOutcomeControl(mode as any);
-              }}
-              disabled={!pendingGlobalMode || pendingGlobalMode === 'INDIVIDUAL'}
-            >
-              確認套用
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={resultDialogOpen}
@@ -1269,15 +1495,21 @@ interface ActiveRealTradesSectionProps {
   sessionName?: string;
   desiredOutcomes: Record<string, 'WIN' | 'LOSE'>;
   setDesiredOutcomes: React.Dispatch<React.SetStateAction<Record<string, 'WIN' | 'LOSE'>>>;
+  activeCount?: number;
+  onSwitchChange: (trade: Transaction, checked: boolean) => void;
+  outcomeControl: 'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE';
+  setOutcomeControl: React.Dispatch<React.SetStateAction<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE'>>;
 }
 
 const ActiveRealTradesSection = memo(
-  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes }: ActiveRealTradesSectionProps) => {
+  ({ trades, finishedTrades, isLoading, onRefresh, onEdit, formatTime, hideOrderNumber, onToggleHideOrderNumber, onQuickSetOutcome, quickUpdatingIds, sessionName, desiredOutcomes, setDesiredOutcomes, activeCount = 0, onSwitchChange, outcomeControl, setOutcomeControl }: ActiveRealTradesSectionProps) => {
+    const { api } = useAuth();
+    const { toast } = useToast();
     const [now, setNow] = useState<number>(() => Date.now());
     const [durationFilter, setDurationFilter] =
       useState<'ALL' | 30 | 60 | 90 | 120 | 150 | 180 | 'FINISHED'>('ALL');
-    const [outcomeControl, setOutcomeControl] =
-      useState<'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM'>('INDIVIDUAL');
+    const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+    const [pendingControl, setPendingControl] = useState<'ALL_WIN' | 'ALL_LOSE' | null>(null);
 
     useEffect(() => {
       const t = setInterval(() => setNow(Date.now()), 1000);
@@ -1313,19 +1545,101 @@ const ActiveRealTradesSection = memo(
             return remain > 0 && dur === durationFilter;
           });
 
-    const applyOutcomeControl = (mode: typeof outcomeControl) => {
-      if (mode === 'INDIVIDUAL') return;
-      const targets = filteredTrades.filter(t => getRemainingSeconds(t.expiryTime) > 0);
+    // 應用全局輸贏控制
+    const applyOutcomeControl = async (mode: 'ALL_WIN' | 'ALL_LOSE') => {
+      console.log('[applyOutcomeControl] 開始應用:', mode);
+      if (!api) {
+        console.log('[applyOutcomeControl] API 不可用');
+        return;
+      }
+      
+      const targets = filteredTrades.filter(t => 
+        getRemainingSeconds(t.expiryTime) > 0 && t.marketSessionId
+      );
+      
+      console.log('[applyOutcomeControl] 可控制的訂單數量:', targets.length, targets);
+      
+      if (targets.length === 0) {
+        toast({
+          title: '提示',
+          description: '沒有可控制的訂單',
+          variant: 'default'
+        });
+        return;
+      }
+      
+      const outcome: 'WIN' | 'LOSE' = mode === 'ALL_WIN' ? 'WIN' : 'LOSE';
+      
+      // 先更新本地狀態
       setDesiredOutcomes(prev => {
         const next = { ...prev };
-        for (const t of targets) {
-          next[t.id] =
-            mode === 'ALL_WIN' ? 'WIN' :
-            mode === 'ALL_LOSE' ? 'LOSE' :
-            Math.random() < 0.5 ? 'WIN' : 'LOSE';
+        for (const trade of targets) {
+          next[trade.id] = outcome;
         }
+        console.log('[applyOutcomeControl] 更新 desiredOutcomes:', next);
         return next;
       });
+      
+      try {
+        // 批量更新所有訂單的 API
+        const promises = targets.map(async (trade) => {
+          try {
+            await transactionService.forceSettle(api, trade.orderNumber, {
+              result: outcome
+            });
+            console.log('[applyOutcomeControl] 成功更新訂單:', trade.orderNumber);
+          } catch (error) {
+            console.error(`[applyOutcomeControl] Failed to update trade ${trade.orderNumber}:`, error);
+            // 如果某個訂單更新失敗，恢復該訂單的狀態
+            setDesiredOutcomes(prev => {
+              const next = { ...prev };
+              delete next[trade.id];
+              return next;
+            });
+            throw error;
+          }
+        });
+        
+        await Promise.all(promises);
+        
+        console.log('[applyOutcomeControl] 所有訂單更新完成，設置 outcomeControl:', mode);
+        setOutcomeControl(mode);
+        toast({
+          title: '成功',
+          description: `已將 ${targets.length} 筆訂單設定為${mode === 'ALL_WIN' ? '全贏' : '全輸'}`
+        });
+      } catch (error: any) {
+        console.error('[applyOutcomeControl] 批量更新失敗:', error);
+        toast({
+          title: '錯誤',
+          description: error?.response?.data?.message || error?.message || '批量更新失敗，部分訂單可能未更新',
+          variant: 'destructive'
+        });
+      }
+    };
+    
+    // 處理全局控制選擇
+    const handleOutcomeControlChange = (value: 'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE') => {
+      console.log('[handleOutcomeControlChange] 選擇:', value);
+      if (value === 'INDIVIDUAL') {
+        setOutcomeControl('INDIVIDUAL');
+        return;
+      }
+      
+      // 顯示確認對話框
+      console.log('[handleOutcomeControlChange] 顯示確認對話框');
+      setPendingControl(value);
+      setConfirmDialogOpen(true);
+    };
+    
+    // 確認應用全局控制
+    const handleConfirmControl = async () => {
+      console.log('[handleConfirmControl] 確認應用:', pendingControl);
+      if (pendingControl) {
+        await applyOutcomeControl(pendingControl);
+        setConfirmDialogOpen(false);
+        setPendingControl(null);
+      }
     };
 
     return (
@@ -1344,6 +1658,22 @@ const ActiveRealTradesSection = memo(
               隱藏訂單號
             </label>
             <Badge variant="outline">{filteredTrades.length} 筆</Badge>
+            <Select
+              value={outcomeControl}
+              onValueChange={(value) => {
+                console.log('[Select] onValueChange 觸發:', value);
+                handleOutcomeControlChange(value as 'INDIVIDUAL' | 'ALL_WIN' | 'ALL_LOSE');
+              }}
+            >
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="控制方式" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
+                <SelectItem value="ALL_WIN">全贏</SelectItem>
+                <SelectItem value="ALL_LOSE">全輸</SelectItem>
+              </SelectContent>
+            </Select>
             <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
               <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               重新整理
@@ -1377,28 +1707,6 @@ const ActiveRealTradesSection = memo(
               已結束
             </Button>
     </div>
-          {durationFilter !== 'FINISHED' && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">輸贏控制</span>
-              <Select
-                value={outcomeControl}
-                onValueChange={async (val: any) => {
-                  setOutcomeControl(val);
-                  await applyOutcomeControl(val);
-                }}
-              >
-                <SelectTrigger className="w-[140px] h-8">
-                  <SelectValue placeholder="個別控制" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL_LOSE">全輸</SelectItem>
-                  <SelectItem value="ALL_WIN">全贏</SelectItem>
-                  <SelectItem value="RANDOM">隨機</SelectItem>
-                  <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -1423,7 +1731,7 @@ const ActiveRealTradesSection = memo(
                   <TableHead>投資金額</TableHead>
                   <TableHead>入場時間</TableHead>
                   <TableHead className="min-w-[150px]">到期時間</TableHead>
-                  <TableHead className="text-right">輸 → 贏</TableHead>
+                  <TableHead className="text-right">{durationFilter === 'FINISHED' ? '盈虧' : '輸 → 贏'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1465,26 +1773,34 @@ const ActiveRealTradesSection = memo(
                         <div
                           className={cn(
                             'font-medium',
-                            typeof trade.actualReturn === 'number'
-                              ? trade.actualReturn >= 0
-                                ? 'text-green-600'
-                                : 'text-red-600'
-                              : 'text-muted-foreground'
+                            (() => {
+                              if (typeof trade.actualReturn !== 'number') return 'text-muted-foreground';
+                              // 如果 actualReturn 是 0，但 investAmount > 0，視為虧損
+                              if (trade.actualReturn === 0 && trade.investAmount > 0) {
+                                return 'text-red-600';
+                              }
+                              return trade.actualReturn >= 0 ? 'text-green-600' : 'text-red-600';
+                            })()
                           )}
                         >
-                          {typeof trade.actualReturn === 'number'
-                            ? `${trade.actualReturn >= 0 ? '+' : '-'}$${Math.abs(trade.actualReturn).toFixed(2)}`
-                            : '-'}
+                          {(() => {
+                            if (typeof trade.actualReturn !== 'number') return '-';
+                            // 如果 actualReturn 是 0，但 investAmount > 0，顯示為虧損
+                            if (trade.actualReturn === 0 && trade.investAmount > 0) {
+                              return `-$${trade.investAmount.toFixed(2)}`;
+                            }
+                            return `${trade.actualReturn >= 0 ? '+' : '-'}$${Math.abs(trade.actualReturn).toFixed(2)}`;
+                          })()}
                         </div>
                       ) : (
                         <div className="flex items-center justify-end gap-2">
                           <span className="text-xs text-muted-foreground">輸</span>
                           <Switch
-                            disabled={quickUpdatingIds.has(trade.id)}
+                            disabled={quickUpdatingIds.has(trade.id) || !trade.marketSessionId}
                             checked={(desiredOutcomes[trade.id] || 'LOSE') === 'WIN'}
                             onCheckedChange={(checked) => {
                               setOutcomeControl('INDIVIDUAL');
-                              setDesiredOutcomes(prev => ({ ...prev, [trade.id]: checked ? 'WIN' : 'LOSE' }));
+                              onSwitchChange(trade, checked);
                             }}
                             aria-label="切換輸贏"
                           />
@@ -1497,8 +1813,33 @@ const ActiveRealTradesSection = memo(
               </TableBody>
             </Table>
           </div>
-        )}
+          )}
       </CardContent>
+      
+      {/* 確認對話框 */}
+      <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>確認全局控制</DialogTitle>
+            <DialogDescription>
+              您確定要將所有進行中的訂單設定為{pendingControl === 'ALL_WIN' ? '全贏' : '全輸'}嗎？
+              <br />
+              此操作將影響所有有對應大盤的訂單，且可在倒數結束前隨時更改。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setConfirmDialogOpen(false);
+              setPendingControl(null);
+            }}>
+              取消
+            </Button>
+            <Button onClick={handleConfirmControl}>
+              確認
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 });

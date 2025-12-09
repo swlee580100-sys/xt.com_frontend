@@ -156,6 +156,23 @@ export const supportAdminService = {
   },
 
   /**
+   * 撤回消息（管理员）
+   * DELETE /api/admin/support/messages/:messageId
+   */
+  deleteMessage: async (api: AxiosInstance, messageId: string): Promise<{ success: boolean; message: string; messageId: string }> => {
+    try {
+      const response = await api.delete<{ success: boolean; message: string; messageId: string } | { data: { success: boolean; message: string; messageId: string } }>(`/admin/support/messages/${messageId}`);
+      return unwrapData<{ success: boolean; message: string; messageId: string }>(response.data);
+    } catch (error: any) {
+      // 如果是 404 錯誤，提供更友好的錯誤訊息
+      if (error?.response?.status === 404) {
+        throw new Error('撤回訊息接口未找到，請確認後端已實現 DELETE /api/admin/support/messages/:messageId 接口');
+      }
+      throw error;
+    }
+  },
+
+  /**
    * 获取未读消息统计
    * GET /api/admin/support/unread-count
    */
@@ -188,6 +205,48 @@ export const supportAdminService = {
    */
   getMessages: async (api: AxiosInstance, params: GetMessagesParams): Promise<MessageResponse> => {
     return supportUserService.getMessages(api, params);
+  },
+
+  /**
+   * 导出客服对话记录
+   * GET /api/admin/support/export
+   */
+  exportConversations: async (
+    api: AxiosInstance,
+    params?: {
+      format?: 'json' | 'csv';
+      status?: string;
+      startDate?: string;
+      endDate?: string;
+      userId?: string;
+      adminId?: string;
+    }
+  ): Promise<Blob> => {
+    try {
+      const response = await api.get('/admin/support/export', {
+        params,
+        responseType: 'blob', // 重要：設置為 blob 以處理文件下載
+      });
+      
+      // 檢查響應狀態
+      if (response.status !== 200) {
+        throw new Error(`導出失敗: HTTP ${response.status}`);
+      }
+      
+      // 檢查響應類型
+      if (response.data instanceof Blob) {
+        return response.data;
+      }
+      
+      // 如果不是 Blob，嘗試轉換
+      return new Blob([response.data], { type: response.headers['content-type'] || 'application/json' });
+    } catch (error: any) {
+      // 如果是 404 錯誤，提供更友好的錯誤訊息
+      if (error.response?.status === 404) {
+        throw new Error('導出接口未找到，請確認後端已實現該接口');
+      }
+      throw error;
+    }
   },
 };
 

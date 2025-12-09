@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, AlertTriangle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
@@ -31,17 +32,22 @@ interface EditMarketSessionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  activeCount?: number;
+  onSessionStarted?: () => void;
 }
 
 export function EditMarketSessionDialog({
   session,
   open,
   onOpenChange,
-  onSuccess
+  onSuccess,
+  activeCount = 0,
+  onSessionStarted
 }: EditMarketSessionDialogProps) {
   const { api } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [enableImmediately, setEnableImmediately] = useState(false);
 
   type UiInitialControl = 'ALL_WIN' | 'ALL_LOSE' | 'RANDOM' | 'INDIVIDUAL';
   const mapResultToUi = (r?: MarketResult | null): UiInitialControl => {
@@ -74,6 +80,7 @@ export function EditMarketSessionDialog({
         actualResult: session.actualResult || undefined
       });
       setUiInitialControl(mapResultToUi(session.initialResult));
+      setEnableImmediately(false);
     } else {
       // 建立模式 - 設定預設值
       setFormData({
@@ -83,6 +90,7 @@ export function EditMarketSessionDialog({
         actualResult: undefined
       });
       setUiInitialControl('INDIVIDUAL');
+      setEnableImmediately(false);
     }
   }, [session, open]);
 
@@ -139,14 +147,50 @@ export function EditMarketSessionDialog({
           description: formData.description || undefined,
           startTime: start.toISOString(),
           endTime: end.toISOString(),
-          initialResult: mapUiToResult(uiInitialControl)
+          initialResult: 'PENDING' // 建立時使用預設值，不讓用戶選擇
         };
 
-        await marketSessionService.admin.createSession(api, createData);
-        toast({
-          title: '成功',
-          description: '大盤已建立'
-        });
+        const createdSession = await marketSessionService.admin.createSession(api, createData);
+        
+        console.log('Created session:', createdSession);
+        console.log('enableImmediately:', enableImmediately, 'activeCount:', activeCount, 'session.id:', createdSession.id);
+        
+        // 如果選擇立即啟用且沒有進行中的大盤
+        if (enableImmediately && activeCount === 0 && createdSession.id) {
+          try {
+            console.log('Attempting to start session:', createdSession.id);
+            await marketSessionService.admin.startSession(api, createdSession.id, {
+              initialResult: 'PENDING'
+            });
+            console.log('Session started successfully');
+            toast({
+              title: '成功',
+              description: '大盤已建立並立即啟用'
+            });
+            if (onSessionStarted) {
+              onSessionStarted();
+            }
+          } catch (error: any) {
+            console.error('Failed to start session:', error);
+            toast({
+              title: '警告',
+              description: '大盤已建立，但立即啟用失敗：' + (error.response?.data?.message || error.message || '未知錯誤'),
+              variant: 'destructive'
+            });
+          }
+        } else {
+          if (!enableImmediately) {
+            console.log('enableImmediately is false, skipping start');
+          } else if (activeCount > 0) {
+            console.log('activeCount > 0, skipping start');
+          } else if (!createdSession.id) {
+            console.error('createdSession.id is missing:', createdSession);
+          }
+          toast({
+            title: '成功',
+            description: '大盤已建立'
+          });
+        }
       }
 
       onSuccess();
@@ -194,28 +238,51 @@ export function EditMarketSessionDialog({
               />
             </div>
 
+            {/* 是否立即啟用 - 僅在建立模式下顯示 */}
+            {!session && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="enableImmediately">是否立即啟用</Label>
+                  <Switch
+                    id="enableImmediately"
+                    checked={enableImmediately}
+                    onCheckedChange={setEnableImmediately}
+                    disabled={activeCount > 0}
+                  />
+                </div>
+                {activeCount > 0 && (
+                  <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>目前已有進行中的大盤，無法立即啟用新大盤</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 時間範圍：已移除（由後台啟停控制） */}
 
             {/* 資產類型：已移除（建立大盤不需要資產類型） */}
 
-            {/* 初始結果（與全局輸贏控制一致的選項） */}
-            <div>
-              <Label htmlFor="initialResult">預設輸贏結果（與全局輸贏控制一致）</Label>
-              <Select
-                value={uiInitialControl}
-                onValueChange={(val) => setUiInitialControl(val as UiInitialControl)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="選擇預設輸贏結果" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL_WIN">全贏</SelectItem>
-                  <SelectItem value="ALL_LOSE">全輸</SelectItem>
-                  <SelectItem value="RANDOM">隨機</SelectItem>
-                  <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {/* 初始結果（與全局輸贏控制一致的選項）- 僅在編輯模式下顯示 */}
+            {session && (
+              <div>
+                <Label htmlFor="initialResult">預設輸贏結果（與全局輸贏控制一致）</Label>
+                <Select
+                  value={uiInitialControl}
+                  onValueChange={(val) => setUiInitialControl(val as UiInitialControl)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="選擇預設輸贏結果" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL_WIN">全贏</SelectItem>
+                    <SelectItem value="ALL_LOSE">全輸</SelectItem>
+                    <SelectItem value="RANDOM">隨機</SelectItem>
+                    <SelectItem value="INDIVIDUAL">個別控制</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* 實際結果：已移除（編輯大盤不需要此篩選器） */}
           </div>

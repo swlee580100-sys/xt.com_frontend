@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { MessageSquare, Users, XCircle, Send, User, AlertCircle } from 'lucide-react';
+import { MessageSquare, Users, XCircle, Send, User, AlertCircle, Download, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,7 +31,11 @@ export const AdminChat: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [activeTab, setActiveTab] = useState('active');
+  const [isExporting, setIsExporting] = useState(false);
+  const [contextMenuMessageId, setContextMenuMessageId] = useState<string | null>(null);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const selectedConversationRef = useRef<ChatConversation | null>(null);
+  const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
   // 获取对话列表
   const fetchConversations = useCallback(async (status?: ConversationStatus) => {
@@ -46,17 +50,6 @@ export const AdminChat: React.FC = () => {
       });
       // 后端返回的是 { conversations: [], total: 0, ... }
       const conversationsList = response.conversations || response.data || [];
-      // 調試：檢查對話數據
-      console.log('對話列表數據:', conversationsList);
-      conversationsList.forEach((conv: any) => {
-        console.log(`對話 ${conv.userName}:`, {
-          adminUnreadCount: conv.adminUnreadCount,
-          unreadCount: conv.unreadCount,
-          adminUnread: conv.adminUnread,
-          unread: conv.unread,
-          fullObject: conv
-        });
-      });
       // 映射數據：將後端可能的欄位名稱映射到前端需要的欄位
       const mappedConversations = conversationsList.map((conv: any) => ({
         ...conv,
@@ -96,6 +89,8 @@ export const AdminChat: React.FC = () => {
   // 选择对话
   const selectConversation = useCallback(async (conversation: ChatConversation) => {
     setSelectedConversation(conversation);
+    // 切換對話時，清理已處理的訊息 ID Set（為新對話做準備）
+    processedMessageIdsRef.current.clear();
 
     if (!api) return;
 
@@ -118,16 +113,24 @@ export const AdminChat: React.FC = () => {
       setSelectedConversation(mappedDetail);
 
       // 从对话详情中获取消息列表
+      let loadedMessages: ChatMessage[] = [];
       if (conversationDetail.messages && conversationDetail.messages.length > 0) {
-        setMessages(conversationDetail.messages);
+        loadedMessages = conversationDetail.messages;
+        setMessages(loadedMessages);
       } else {
         // 如果对话详情中没有消息，则单独获取（方式2）
         const messageResponse = await supportService.admin.getMessages(api, {
           conversationId: conversationDetail.id,
           limit: 100
         });
-        setMessages(messageResponse.messages || messageResponse.data || []);
+        loadedMessages = messageResponse.messages || messageResponse.data || [];
+        setMessages(loadedMessages);
       }
+      
+      // 將已加載的訊息 ID 加入到已處理 Set 中，避免 WebSocket 重複添加
+      loadedMessages.forEach(msg => {
+        processedMessageIdsRef.current.add(msg.id);
+      });
 
       // 如果有未讀訊息，標記為已讀
       if (conversation.adminUnreadCount > 0 && socketService) {
@@ -167,7 +170,20 @@ export const AdminChat: React.FC = () => {
       };
 
       const message = await supportService.admin.sendMessage(api, messageData);
-      setMessages(prev => [...prev, message]);
+      
+      // 標記此訊息 ID 為已處理
+      processedMessageIdsRef.current.add(message.id);
+      
+      // 添加到本地狀態（優化用戶體驗）
+      setMessages(prev => {
+        // 雙重檢查：確保不會重複添加
+        const exists = prev.some(msg => msg.id === message.id);
+        if (exists) {
+          return prev;
+        }
+        return [...prev, message];
+      });
+      
       setInputMessage('');
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -201,6 +217,67 @@ export const AdminChat: React.FC = () => {
       console.error('Failed to close conversation:', error);
     }
   }, [api, selectedConversation, fetchUnreadCount]);
+
+  // 撤回訊息
+  const deleteMessage = useCallback(async (messageId: string) => {
+    if (!api) return;
+
+    try {
+      await supportService.admin.deleteMessage(api, messageId);
+      // 從訊息列表中移除該訊息
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      toast({
+        title: '成功',
+        description: '訊息已撤回',
+      });
+    } catch (error: any) {
+      console.error('Failed to delete message:', error);
+      let errorMessage = '撤回訊息失敗';
+      
+      // 處理不同的錯誤情況
+      if (error?.response?.status === 404) {
+        errorMessage = error?.message || '撤回訊息接口未找到，請確認後端已實現該接口';
+      } else if (error?.response?.status === 403) {
+        errorMessage = error?.response?.data?.message || '無權限撤回此訊息';
+      } else if (error?.response?.data?.message) {
+        // 處理後端返回的錯誤訊息（可能是嵌套的）
+        const backendMessage = error.response.data.message;
+        if (typeof backendMessage === 'object' && backendMessage.message) {
+          errorMessage = backendMessage.message;
+        } else if (typeof backendMessage === 'string') {
+          errorMessage = backendMessage;
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      toast({
+        title: '錯誤',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setContextMenuMessageId(null);
+      setContextMenuPosition(null);
+    }
+  }, [api, toast]);
+
+  // 處理點擊外部區域關閉右鍵菜單
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (contextMenuPosition) {
+        setContextMenuPosition(null);
+        setContextMenuMessageId(null);
+      }
+    };
+
+    if (contextMenuPosition) {
+      document.addEventListener('click', handleClickOutside);
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  }, [contextMenuPosition]);
 
   // 初始化 Socket.IO
   useEffect(() => {
@@ -249,7 +326,23 @@ export const AdminChat: React.FC = () => {
     // 监听业务事件
     socket.on('newMessage', (message: ChatMessage) => {
       if (selectedConversationRef.current && message.conversationId === selectedConversationRef.current.id) {
-        setMessages(prev => [...prev, message]);
+        // 檢查訊息 ID 是否已經處理過
+        if (processedMessageIdsRef.current.has(message.id)) {
+          // 已經處理過，跳過
+          return;
+        }
+        
+        // 標記為已處理
+        processedMessageIdsRef.current.add(message.id);
+        
+        // 檢查訊息是否已經存在於列表中（雙重檢查）
+        setMessages(prev => {
+          const exists = prev.some(msg => msg.id === message.id);
+          if (exists) {
+            return prev; // 如果已存在，不添加
+          }
+          return [...prev, message];
+        });
       }
       // 刷新对话列表以更新最后消息时间
       fetchConversations(activeTab === 'active' ? ConversationStatus.ACTIVE : ConversationStatus.CLOSED);
@@ -356,6 +449,55 @@ export const AdminChat: React.FC = () => {
     }
   };
 
+  // 導出對話記錄
+  const handleExport = useCallback(async () => {
+    if (!api) return;
+
+    try {
+      setIsExporting(true);
+      const blob = await supportService.admin.exportConversations(api, {
+        format: 'csv',
+      });
+
+      // 檢查 blob 是否為空
+      if (blob.size === 0) {
+        throw new Error('導出數據為空');
+      }
+
+      // 創建下載鏈接
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // 根據格式設置文件名
+      const timestamp = new Date().toISOString().split('T')[0];
+      const filename = `客服記錄_${timestamp}.csv`;
+      link.download = filename;
+      
+      // 觸發下載
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // 清理 URL
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: '成功',
+        description: '對話記錄已導出為 CSV 格式',
+      });
+    } catch (error: any) {
+      console.error('Failed to export conversations:', error);
+      toast({
+        title: '錯誤',
+        description: error.message || error.response?.data?.message || '導出失敗，請確認後端接口已實現',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [api, toast]);
+
   // 從訊息內容提取圖片路徑或 URL（應對 "[Image: /uploads/xxx.jpg]" 這種格式）
   const extractImagePath = (raw?: string | null): string | undefined => {
     if (!raw) return undefined;
@@ -434,8 +576,16 @@ export const AdminChat: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
+            onClick={handleExport}
+            disabled={isExporting}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            {isExporting ? '導出中...' : '導出全體用戶對話紀錄'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
-              console.log('🔄 Fetching ALL conversations (no status filter)');
               fetchConversations(undefined);
             }}
           >
@@ -567,11 +717,20 @@ export const AdminChat: React.FC = () => {
                           <div
                             className={`flex ${message.senderType === SenderType.ADMIN ? 'justify-end' : 'justify-start'}`}
                           >
-                            <div className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                              message.senderType === SenderType.ADMIN
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-muted'
-                            }`}>
+                            <div 
+                              className={`max-w-[70%] rounded-lg px-4 py-2 ${
+                                message.senderType === SenderType.ADMIN
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted'
+                              }`}
+                              onContextMenu={(e) => {
+                                if (message.senderType === SenderType.ADMIN) {
+                                  e.preventDefault();
+                                  setContextMenuMessageId(message.id);
+                                  setContextMenuPosition({ x: e.clientX, y: e.clientY });
+                                }
+                              }}
+                            >
                               {message.messageType === MessageType.IMAGE ? (
                                 <img
                                   src={resolveImageUrl(message.content)}
@@ -606,6 +765,32 @@ export const AdminChat: React.FC = () => {
                         </React.Fragment>
                       );
                     })}
+                  {/* 右鍵菜單 */}
+                  {contextMenuPosition && contextMenuMessageId && (
+                    <div
+                      className="fixed z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+                      style={{
+                        left: `${contextMenuPosition.x}px`,
+                        top: `${contextMenuPosition.y}px`,
+                      }}
+                      onMouseLeave={() => {
+                        setContextMenuPosition(null);
+                        setContextMenuMessageId(null);
+                      }}
+                    >
+                      <div
+                        className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground hover:bg-accent text-red-600"
+                        onClick={() => {
+                          if (contextMenuMessageId) {
+                            deleteMessage(contextMenuMessageId);
+                          }
+                        }}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        撤回訊息
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 输入区域 */}

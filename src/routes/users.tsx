@@ -9,7 +9,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { MoreHorizontal, ChevronUp, ChevronDown, Pencil, UserX, UserCheck, Trash2 } from 'lucide-react';
+import { MoreHorizontal, ChevronUp, ChevronDown, Pencil, UserX, UserCheck, Trash2, Key, Eye, EyeOff } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
 import { userService } from '@/services/users';
@@ -50,12 +50,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/useToast';
 import { EditUserDialog } from '@/components/users/edit-user-dialog';
 
 export const UsersPage = () => {
   const navigate = useNavigate();
   const { api } = useAuth();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   // State
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -67,6 +71,12 @@ export const UsersPage = () => {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const registrationSortValue =
     sorting[0]?.id === 'createdAt'
       ? sorting[0]?.desc
@@ -120,6 +130,28 @@ export const UsersPage = () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteDialogOpen(false);
       setUserToDelete(null);
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ id, newPassword }: { id: string; newPassword: string }) =>
+      userService.resetPassword(api, id, { newPassword }),
+    onSuccess: () => {
+      toast({
+        title: '成功',
+        description: '密碼已重置',
+      });
+      setResetPasswordDialogOpen(false);
+      setUserToResetPassword(null);
+      setNewPassword('');
+      setConfirmPassword('');
+    },
+    onError: (error: any) => {
+      toast({
+        title: '錯誤',
+        description: error.response?.data?.message || error.message || '重置密碼失敗',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -275,6 +307,16 @@ export const UsersPage = () => {
                   激活用戶
                 </DropdownMenuItem>
               )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  setUserToResetPassword(user);
+                  setResetPasswordDialogOpen(true);
+                }}
+              >
+                <Key className="mr-2 h-4 w-4" />
+                重置密碼
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-red-600"
@@ -525,6 +567,132 @@ export const UsersPage = () => {
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
       />
+
+      {/* Reset Password Dialog */}
+      <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>重置密碼</DialogTitle>
+            <DialogDescription>
+              為用戶 "{userToResetPassword?.displayName}" ({userToResetPassword?.email}) 設置新密碼
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">新密碼</Label>
+              <div className="relative">
+                <Input
+                  id="newPassword"
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="請輸入新密碼（至少6個字符）"
+                  disabled={resetPasswordMutation.isPending}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  disabled={resetPasswordMutation.isPending}
+                >
+                  {showNewPassword ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">確認密碼</Label>
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="請再次輸入新密碼"
+                  disabled={resetPasswordMutation.isPending}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  disabled={resetPasswordMutation.isPending}
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            {newPassword && confirmPassword && newPassword !== confirmPassword && (
+              <p className="text-sm text-red-600">兩次輸入的密碼不一致</p>
+            )}
+            {newPassword && newPassword.length < 6 && (
+              <p className="text-sm text-red-600">密碼長度至少需要6個字符</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setResetPasswordDialogOpen(false);
+                setUserToResetPassword(null);
+                setNewPassword('');
+                setConfirmPassword('');
+                setShowNewPassword(false);
+                setShowConfirmPassword(false);
+              }}
+              disabled={resetPasswordMutation.isPending}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                if (!userToResetPassword) return;
+                if (newPassword.length < 6) {
+                  toast({
+                    title: '錯誤',
+                    description: '密碼長度至少需要6個字符',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+                if (newPassword !== confirmPassword) {
+                  toast({
+                    title: '錯誤',
+                    description: '兩次輸入的密碼不一致',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+                resetPasswordMutation.mutate({
+                  id: userToResetPassword.id,
+                  newPassword,
+                });
+              }}
+              disabled={
+                resetPasswordMutation.isPending ||
+                !newPassword ||
+                !confirmPassword ||
+                newPassword !== confirmPassword ||
+                newPassword.length < 6
+              }
+            >
+              {resetPasswordMutation.isPending ? '重置中...' : '確認重置'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
