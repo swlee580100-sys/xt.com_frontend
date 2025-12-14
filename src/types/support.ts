@@ -49,6 +49,7 @@ export interface ChatMessage {
   content: string;
   metadata?: Record<string, any> | null;
   isRead?: boolean;
+  readAt?: string | null;  // 已读时间（ISO 8601格式）
   createdAt: string;
 }
 

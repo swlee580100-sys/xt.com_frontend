@@ -51,14 +51,34 @@ export const AdminChat: React.FC = () => {
       // 后端返回的是 { conversations: [], total: 0, ... }
       const conversationsList = response.conversations || response.data || [];
       // 映射數據：將後端可能的欄位名稱映射到前端需要的欄位
-      const mappedConversations = conversationsList.map((conv: any) => ({
-        ...conv,
-        // 嘗試多種可能的欄位名稱
-        adminUnreadCount: conv.adminUnreadCount ?? conv.unreadCount ?? conv.adminUnread ?? conv.unread ?? 0,
+      const mappedConversations = conversationsList.map((conv: any) => {
+        // 嘗試多種可能的欄位名稱來獲取管理員未讀數量
+        const adminUnread = 
+          conv.adminUnreadCount ?? 
+          conv.unreadAdminCount ?? 
+          conv.adminUnread ?? 
+          conv.unreadCount ?? 
+          conv.unread ?? 
+          0;
+        
         // 確保 userUnreadCount 也有值
-        userUnreadCount: conv.userUnreadCount ?? 0
-      }));
-      setConversations(mappedConversations);
+        const userUnread = conv.userUnreadCount ?? conv.unreadUserCount ?? 0;
+        
+        return {
+          ...conv,
+          adminUnreadCount: Number(adminUnread) || 0, // 確保是數字
+          userUnreadCount: Number(userUnread) || 0
+        };
+      });
+      
+      // 按最新消息時間排序（最新的在最上面）
+      const sortedConversations = mappedConversations.sort((a, b) => {
+        const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+        const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+        return timeB - timeA; // 降序排序，最新的在前
+      });
+      
+      setConversations(sortedConversations);
     } catch (error: any) {
       console.error('❌ Failed to fetch conversations:', error);
       console.error('Error details:', error.response?.data);
@@ -107,8 +127,17 @@ export const AdminChat: React.FC = () => {
       // 映射數據：確保 adminUnreadCount 有值
       const mappedDetail = {
         ...conversationDetail,
-        adminUnreadCount: conversationDetail.adminUnreadCount ?? conversationDetail.unreadCount ?? 0,
-        userUnreadCount: conversationDetail.userUnreadCount ?? 0
+        adminUnreadCount: Number(
+          conversationDetail.adminUnreadCount ?? 
+          conversationDetail.unreadAdminCount ?? 
+          conversationDetail.unreadCount ?? 
+          0
+        ) || 0,
+        userUnreadCount: Number(
+          conversationDetail.userUnreadCount ?? 
+          conversationDetail.unreadUserCount ?? 
+          0
+        ) || 0
       };
       setSelectedConversation(mappedDetail);
 
@@ -132,19 +161,34 @@ export const AdminChat: React.FC = () => {
         processedMessageIdsRef.current.add(msg.id);
       });
 
+      // 進入對話時，延遲標記已讀（確保用戶看到了消息）
       // 如果有未讀訊息，標記為已讀
       if (conversation.adminUnreadCount > 0 && socketService) {
-        socketService.markAsRead(conversation.id);
-        // 更新對話列表中的未讀數量
-        setConversations(prev =>
-          prev.map(conv =>
-            conv.id === conversation.id
-              ? { ...conv, adminUnreadCount: 0 }
-              : conv
-          )
-        );
-        // 更新未讀訊息總數
-        fetchUnreadCount();
+        // 延遲1秒後標記已讀，確保用戶看到了消息
+        const markReadTimer = setTimeout(() => {
+          socketService.markAsRead(conversation.id);
+          // 立即更新本地狀態（優化用戶體驗）
+          setMessages(prevMessages =>
+            prevMessages.map(msg =>
+              msg.senderType === SenderType.USER && !msg.isRead
+                ? { ...msg, isRead: true, readAt: new Date().toISOString() }
+                : msg
+            )
+          );
+          // 更新對話列表中的未讀數量
+          setConversations(prev =>
+            prev.map(conv =>
+              conv.id === conversation.id
+                ? { ...conv, adminUnreadCount: 0 }
+                : conv
+            )
+          );
+          // 更新未讀訊息總數
+          fetchUnreadCount();
+        }, 1000);
+        
+        // 清理定時器（如果組件卸載或對話切換）
+        return () => clearTimeout(markReadTimer);
       }
     } catch (error: any) {
       console.error('Failed to load conversation:', error);
@@ -344,8 +388,23 @@ export const AdminChat: React.FC = () => {
           return [...prev, message];
         });
       }
-      // 刷新对话列表以更新最后消息时间
+      // 刷新对话列表以更新最后消息时间，並重新排序
       fetchConversations(activeTab === 'active' ? ConversationStatus.ACTIVE : ConversationStatus.CLOSED);
+      
+      // 同時更新對話列表中的最後消息時間，並重新排序
+      setConversations(prev => {
+        const updated = prev.map(conv => 
+          conv.id === message.conversationId
+            ? { ...conv, lastMessageAt: message.createdAt }
+            : conv
+        );
+        // 按最新消息時間重新排序
+        return updated.sort((a, b) => {
+          const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return timeB - timeA; // 降序排序，最新的在前
+        });
+      });
     });
 
     socket.on('conversationStatusChanged', (data: { conversationId: string; status: string }) => {
@@ -363,7 +422,24 @@ export const AdminChat: React.FC = () => {
       // TODO: 显示"正在输入"指示器
     });
 
-    socket.on('messageRead', (data: { conversationId: string; readerType: string }) => {
+    // 監聽消息已讀事件（support:messages-read）
+    socket.on('support:messages-read', (data: { conversationId: string; readerType: string; readAt: string }) => {
+      console.log('✓✓ Messages read:', data);
+      
+      // 如果當前選中的對話是這個對話，更新消息的已讀狀態
+      if (selectedConversationRef.current && data.conversationId === selectedConversationRef.current.id) {
+        if (data.readerType === 'user') {
+          // 用戶已讀管理員的消息，更新消息狀態
+          setMessages(prevMessages =>
+            prevMessages.map(msg =>
+              msg.senderType === SenderType.ADMIN && !msg.isRead
+                ? { ...msg, isRead: true, readAt: data.readAt }
+                : msg
+            )
+          );
+        }
+      }
+      
       // 更新對話列表中的未讀數量
       setConversations(prev =>
         prev.map(conv =>
@@ -374,6 +450,33 @@ export const AdminChat: React.FC = () => {
       );
       // 更新未讀訊息總數
       fetchUnreadCount();
+    });
+
+    // 兼容舊的事件名稱
+    socket.on('messageRead', (data: { conversationId: string; readerType: string; readAt?: string }) => {
+      // 更新對話列表中的未讀數量
+      setConversations(prev =>
+        prev.map(conv =>
+          conv.id === data.conversationId
+            ? { ...conv, adminUnreadCount: 0 }
+            : conv
+        )
+      );
+      // 更新未讀訊息總數
+      fetchUnreadCount();
+      
+      // 如果提供了 readAt，也更新消息狀態
+      if (data.readAt && selectedConversationRef.current && data.conversationId === selectedConversationRef.current.id) {
+        if (data.readerType === 'user') {
+          setMessages(prevMessages =>
+            prevMessages.map(msg =>
+              msg.senderType === SenderType.ADMIN && !msg.isRead
+                ? { ...msg, isRead: true, readAt: data.readAt! }
+                : msg
+            )
+          );
+        }
+      }
     });
 
     return () => {
@@ -623,43 +726,48 @@ export const AdminChat: React.FC = () => {
 
                   return activeConversations;
                 })()
-                  .map?.(conversation => (
-                    <div
-                      key={conversation.id}
-                      onClick={() => selectConversation(conversation)}
-                      className={`relative p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
-                        selectedConversation?.id === conversation.id ? 'bg-accent' : ''
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2">
-                            <User className="w-4 h-4" />
-                            <span className="font-medium">{conversation.userName}</span>
-                            {conversation.assignedAdminName && (
-                              <Badge variant="outline" className="text-xs">
-                                {conversation.assignedAdminName}
-                              </Badge>
+                  .map?.(conversation => {
+                    // 確保未讀數量是數字
+                    const unreadCount = Number(conversation.adminUnreadCount) || 0;
+                    
+                    return (
+                      <div
+                        key={conversation.id}
+                        onClick={() => selectConversation(conversation)}
+                        className={`relative p-3 rounded-lg border cursor-pointer transition-colors hover:bg-accent ${
+                          selectedConversation?.id === conversation.id ? 'bg-accent' : ''
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2">
+                              <User className="w-4 h-4" />
+                              <span className="font-medium">{conversation.userName}</span>
+                              {conversation.assignedAdminName && (
+                                <Badge variant="outline" className="text-xs">
+                                  {conversation.assignedAdminName}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暫無訊息'}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end space-y-1">
+                            {/* 顯示未讀數量紅點（白字）- 每個對話都應該顯示 */}
+                            {unreadCount > 0 && (
+                              <span 
+                                className="flex min-w-[20px] h-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-semibold text-white shadow-sm"
+                                style={{ backgroundColor: '#ef4444', color: '#ffffff' }}
+                              >
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                              </span>
                             )}
                           </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : '暫無訊息'}
-                          </p>
                         </div>
-                        <div className="flex flex-col items-end space-y-1">
-                          {getStatusBadge(conversation.status)}
-                        </div>
-                        {conversation.adminUnreadCount > 0 && (
-                          <span 
-                            className="absolute bottom-1 right-1 flex min-w-[16px] h-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white z-10 shadow-sm"
-                            style={{ backgroundColor: '#ef4444', color: '#ffffff' }}
-                          >
-                            {conversation.adminUnreadCount > 99 ? '99+' : conversation.adminUnreadCount}
-                          </span>
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
               </div>
             </div>
           </CardContent>
